@@ -122,6 +122,16 @@ export async function exchangeCodeForToken(
   // points at the wrong place entirely. Accept both shapes.
   const payload = Array.isArray(raw?.data) ? raw.data[0] : raw;
 
+  // Which fields Instagram actually returned. Values are never logged; the key
+  // list alone distinguishes a short-lived token from an already-long-lived one
+  // and keeps the next failure from being diagnosed blind.
+  console.log(
+    "[IG exchange] payload keys:",
+    Object.keys(payload ?? {}).join(","),
+    "| expires_in:",
+    payload?.expires_in ?? "(yok)"
+  );
+
   if (!payload?.access_token) {
     throw new Error(
       `Token exchange returned no access_token (keys: ${Object.keys(raw ?? {}).join(",")})`

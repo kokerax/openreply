@@ -47,8 +47,24 @@ export async function GET(request: NextRequest) {
       code,
       redirectUri
     );
-    const { accessToken: longLivedToken, expiresIn } =
-      await getLongLivedToken(shortLivedToken);
+    // Business Login for Instagram can hand back a token that is already
+    // long-lived; ig_exchange_token then answers "Unsupported request - method
+    // type: get (/access_token)". That must not abort a connection that is
+    // otherwise fine — fall back to the token we already hold and let the daily
+    // refresh cron extend it.
+    let longLivedToken = shortLivedToken;
+    let expiresIn = 5184000;
+    try {
+      const exchanged = await getLongLivedToken(shortLivedToken);
+      longLivedToken = exchanged.accessToken;
+      expiresIn = exchanged.expiresIn;
+      console.log("[Instagram Callback] long-lived exchange ok");
+    } catch (exchangeError) {
+      console.warn(
+        "[Instagram Callback] long-lived exchange skipped:",
+        exchangeError instanceof Error ? exchangeError.message : exchangeError
+      );
+    }
     const userInfo = await getUserInfo(longLivedToken);
     // Webhooks and the messaging API key off the professional account ID
     // (user_id), not the app-scoped `id`. Store user_id so comment webhooks
