@@ -558,14 +558,34 @@ export async function getConversationMessages(
 }
 
 export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
-  const url = new URL(`${instagramGraphBase()}/me`);
-  url.searchParams.set(
-    "fields",
+  // Meta's own example asks for user_id,username only. A wider field list is
+  // rejected on some token types with "Unsupported request - method type: get",
+  // an error that blames the method rather than the fields. Try the rich list,
+  // then fall back to the documented minimum so a connect never dies over an
+  // optional field like followers_count.
+  const request = async (fields: string) => {
+    const url = new URL(`${instagramGraphBase()}/me`);
+    url.searchParams.set("fields", fields);
+    url.searchParams.set("access_token", accessToken);
+    return fetch(url.toString());
+  };
+
+  console.log(
+    "[getUserInfo] token prefix:",
+    accessToken.slice(0, 6),
+    "| length:",
+    accessToken.length
+  );
+
+  let response = await request(
     "id,user_id,username,name,profile_picture_url,followers_count"
   );
-  url.searchParams.set("access_token", accessToken);
 
-  const response = await fetch(url.toString());
+  if (!response.ok) {
+    console.warn("[getUserInfo] wide field list rejected, retrying minimal");
+    response = await request("user_id,username");
+  }
+
   return handleResponse<InstagramUser>(response);
 }
 
