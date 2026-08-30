@@ -4,6 +4,15 @@ function instagramGraphBase() {
   return `https://graph.instagram.com/${getMetaGraphApiVersion()}`;
 }
 
+// The token endpoints do NOT accept a version segment. Sending one makes
+// Instagram answer "Unsupported request - method type: get (/v25.0/access_token)"
+// (IGApiException code 100), which surfaces as a failed connection right after
+// the user has already approved the login. Node-based endpoints above keep the
+// version; only these two are unversioned.
+function instagramGraphBaseUnversioned() {
+  return "https://graph.instagram.com";
+}
+
 function facebookGraphBase() {
   return `https://graph.facebook.com/${getMetaGraphApiVersion()}`;
 }
@@ -714,7 +723,7 @@ export async function getFollowerCountSeries(
 export async function getLongLivedToken(
   shortLivedToken: string
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const url = new URL(`${instagramGraphBase()}/access_token`);
+  const url = new URL(`${instagramGraphBaseUnversioned()}/access_token`);
   url.searchParams.set("grant_type", "ig_exchange_token");
   url.searchParams.set("client_secret", requireEnv("INSTAGRAM_APP_SECRET"));
   url.searchParams.set("access_token", shortLivedToken);
@@ -731,7 +740,7 @@ export async function getLongLivedToken(
 export async function refreshLongLivedToken(
   longLivedToken: string
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const url = new URL(`${instagramGraphBase()}/refresh_access_token`);
+  const url = new URL(`${instagramGraphBaseUnversioned()}/refresh_access_token`);
   url.searchParams.set("grant_type", "ig_refresh_token");
   url.searchParams.set("access_token", longLivedToken);
 
