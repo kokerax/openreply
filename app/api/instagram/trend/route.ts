@@ -13,6 +13,13 @@ export const maxDuration = 60;
 
 const MAX_POSTS = 500;
 const INSIGHTS_CONCURRENCY = 8;
+/** Turkish call-to-action wording used in this account's captions. */
+const CTA_PATTERN = /yorumlar|takip et ve/i;
+/**
+ * A bucket below this many posts is dropped: a median over two or three posts
+ * moves with a single outlier and would read as a finding when it is noise.
+ */
+const MIN_BUCKET = 5;
 // Publishing hour is read in Istanbul time: "what time did I post" only means
 // something in the author's own timezone, not UTC.
 const TZ_OFFSET_HOURS = 3;
@@ -48,12 +55,40 @@ interface Post {
   caption: string | null;
   permalink: string | null;
   timestamp: string;
+  likes: number;
+  comments: number;
   engagement: number;
   views: number | null;
   saved: number | null;
   shares: number | null;
   localHour: number;
   half: string;
+  captionLength: number;
+  hasCta: boolean;
+  /** Days since the previously published post; null for the oldest one. */
+  gapDays: number | null;
+}
+
+/** A generic "bucket of posts" row — same shape for cadence, length, CTA. */
+export interface TrendBucket {
+  label: string;
+  posts: number;
+  medianViews: number | null;
+  medianEngagement: number;
+}
+
+export interface TrendCta extends TrendBucket {
+  medianComments: number;
+  medianLikes: number;
+  /** Comments as a percentage of likes — how strongly a post pulls replies. */
+  commentPerLikePct: number;
+}
+
+export interface TrendRecent {
+  posts: number;
+  medianViews: number | null;
+  medianEngagement: number;
+  bestViews: number | null;
 }
 
 export interface TrendPeriod {
@@ -81,6 +116,17 @@ export interface TrendResponse {
   hours: TrendHour[];
   /** Views collapsed while engagement-per-view held: a distribution problem. */
   reachCollapsed: boolean;
+  /** Posting frequency: does spacing posts out change reach? */
+  cadence: TrendBucket[];
+  captionLength: TrendBucket[];
+  cta: TrendCta[];
+  last30: TrendRecent | null;
+  /**
+   * Dimensions that could not be measured because every post shares the same
+   * value — reported instead of silently omitted, so an untested factor is
+   * never mistaken for a tested one.
+   */
+  unmeasured: string[];
   topPosts: {
     permalink: string | null;
     caption: string | null;
@@ -145,20 +191,37 @@ export async function GET() {
       }
       const d = new Date(m.timestamp);
       const local = new Date(d.getTime() + TZ_OFFSET_HOURS * 3600 * 1000);
+      const caption = m.caption ?? null;
       return {
         id: m.id,
-        caption: m.caption ?? null,
+        caption,
         permalink: m.permalink ?? null,
         timestamp: m.timestamp,
+        likes: m.like_count ?? 0,
+        comments: m.comments_count ?? 0,
         engagement: (m.like_count ?? 0) + (m.comments_count ?? 0),
         views,
         saved,
         shares,
         localHour: local.getUTCHours(),
         half: `${local.getUTCFullYear()} ${local.getUTCMonth() < 6 ? "H1" : "H2"}`,
+        captionLength: caption?.length ?? 0,
+        hasCta: CTA_PATTERN.test(caption ?? ""),
+        gapDays: null,
       };
     }
   );
+
+  // Gap to the previous post, in publication order. Filled after the fetch
+  // because the API returns newest-first and concurrency scrambles arrival.
+  const chronological = [...enriched].sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp)
+  );
+  for (let i = 1; i < chronological.length; i++) {
+    const prev = new Date(chronological[i - 1].timestamp).getTime();
+    const cur = new Date(chronological[i].timestamp).getTime();
+    chronological[i].gapDays = (cur - prev) / 86_400_000;
+  }
 
   const byHalf = new Map<string, Post[]>();
   for (const p of enriched) {
@@ -222,6 +285,106 @@ export async function GET() {
     withRate[withRate.length - 1].engagementRate! >=
       withRate[0].engagementRate! * 0.8;
 
+  function bucket(label: string, group: Post[]): TrendBucket {
+    const withViews = group.filter((p) => p.views && p.views > 0);
+    return {
+      label,
+      posts: group.length,
+      medianViews: withViews.length
+        ? median(withViews.map((p) => p.views!))
+        : null,
+      medianEngagement: median(group.map((p) => p.engagement)),
+    };
+  }
+
+  const withGap = enriched.filter((p) => p.gapDays !== null);
+  const cadence = [
+    bucket(
+      "Aynı gün",
+      withGap.filter((p) => p.gapDays! < 1)
+    ),
+    bucket(
+      "1–3 gün ara",
+      withGap.filter((p) => p.gapDays! >= 1 && p.gapDays! < 3)
+    ),
+    bucket(
+      "3+ gün ara",
+      withGap.filter((p) => p.gapDays! >= 3)
+    ),
+  ].filter((b) => b.posts >= MIN_BUCKET);
+
+  const captionLength = [
+    bucket(
+      "0–300 karakter",
+      enriched.filter((p) => p.captionLength < 300)
+    ),
+    bucket(
+      "300–600 karakter",
+      enriched.filter((p) => p.captionLength >= 300 && p.captionLength < 600)
+    ),
+    bucket(
+      "600+ karakter",
+      enriched.filter((p) => p.captionLength >= 600)
+    ),
+  ].filter((b) => b.posts >= MIN_BUCKET);
+
+  // CTA is judged on comments-per-like, not on views: the point of asking for
+  // a comment is to get comments, and views are set by distribution upstream
+  // of anything the caption says.
+  const cta: TrendCta[] = [
+    ["Çağrı var", enriched.filter((p) => p.hasCta)] as const,
+    ["Çağrı yok", enriched.filter((p) => !p.hasCta)] as const,
+  ]
+    .map(([label, group]) => {
+      const medianLikes = median(group.map((p) => p.likes));
+      const medianComments = median(group.map((p) => p.comments));
+      return {
+        ...bucket(label, group),
+        medianLikes,
+        medianComments,
+        commentPerLikePct: medianLikes
+          ? Number(((100 * medianComments) / medianLikes).toFixed(1))
+          : 0,
+      };
+    })
+    .filter((b) => b.posts >= MIN_BUCKET);
+
+  const cutoff = Date.now() - 30 * 86_400_000;
+  const recentPosts = enriched.filter(
+    (p) => new Date(p.timestamp).getTime() >= cutoff
+  );
+  const recentViews = recentPosts
+    .filter((p) => p.views && p.views > 0)
+    .map((p) => p.views!);
+  const last30: TrendRecent | null = recentPosts.length
+    ? {
+        posts: recentPosts.length,
+        medianViews: recentViews.length ? median(recentViews) : null,
+        medianEngagement: median(recentPosts.map((p) => p.engagement)),
+        bestViews: recentViews.length ? Math.max(...recentViews) : null,
+      }
+    : null;
+
+  // A dimension with no contrast cannot be tested. Saying so beats leaving it
+  // out, which would read as "checked and found nothing".
+  const unmeasured: string[] = [];
+  const hashtagCounts = enriched.map(
+    (p) => (p.caption?.match(/#\w+/g) ?? []).length
+  );
+  const fewHashtags = hashtagCounts.filter((n) => n <= 3).length;
+  if (hashtagCounts.length && fewHashtags < MIN_BUCKET) {
+    unmeasured.push(
+      `Hashtag sayısı: ${hashtagCounts.length} içeriğin ${
+        hashtagCounts.length - fewHashtags
+      } tanesinde 4+ hashtag var. Karşılaştıracak az-hashtag'li grup olmadığı için etkisi ölçülemedi.`
+    );
+  }
+  if (cta.length < 2) {
+    unmeasured.push(
+      "Yorum çağrısı: iki gruptan biri karşılaştırma için fazla küçük, etkisi ölçülemedi."
+    );
+  }
+
   const sorted = [...enriched].sort((a, b) => b.engagement - a.engagement);
 
   const body: TrendResponse = {
@@ -236,6 +399,11 @@ export async function GET() {
     periods,
     hours,
     reachCollapsed,
+    cadence,
+    captionLength,
+    cta,
+    last30,
+    unmeasured,
     topPosts: sorted.slice(0, 8).map((p) => ({
       permalink: p.permalink,
       caption: p.caption,
