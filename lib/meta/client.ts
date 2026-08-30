@@ -558,35 +558,59 @@ export async function getConversationMessages(
 }
 
 export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
-  // Meta's own example asks for user_id,username only. A wider field list is
-  // rejected on some token types with "Unsupported request - method type: get",
-  // an error that blames the method rather than the fields. Try the rich list,
-  // then fall back to the documented minimum so a connect never dies over an
-  // optional field like followers_count.
-  const request = async (fields: string) => {
-    const url = new URL(`${instagramGraphBase()}/me`);
-    url.searchParams.set("fields", fields);
-    url.searchParams.set("access_token", accessToken);
-    return fetch(url.toString());
-  };
+  // Meta answers "Unsupported request - method type: get" for /me on this token
+  // even though the documented call (versioned base + access_token query param)
+  // is exactly what we send. Rather than guess one variable at a time, sweep the
+  // four combinations and log which one Instagram actually accepts.
+  const FIELDS = "id,user_id,username,name,profile_picture_url,followers_count";
+  const MINIMAL = "user_id,username";
+  const versioned = instagramGraphBase();
+  const unversioned = instagramGraphBaseUnversioned();
 
-  console.log(
-    "[getUserInfo] token prefix:",
-    accessToken.slice(0, 6),
-    "| length:",
-    accessToken.length
-  );
+  const variants: {
+    name: string;
+    base: string;
+    fields: string;
+    bearer: boolean;
+  }[] = [
+    { name: "versioned+query", base: versioned, fields: FIELDS, bearer: false },
+    { name: "unversioned+query", base: unversioned, fields: FIELDS, bearer: false },
+    { name: "versioned+bearer", base: versioned, fields: FIELDS, bearer: true },
+    { name: "unversioned+bearer", base: unversioned, fields: FIELDS, bearer: true },
+    { name: "unversioned+query+minimal", base: unversioned, fields: MINIMAL, bearer: false },
+  ];
 
-  let response = await request(
-    "id,user_id,username,name,profile_picture_url,followers_count"
-  );
+  let lastResponse: Response | null = null;
 
-  if (!response.ok) {
-    console.warn("[getUserInfo] wide field list rejected, retrying minimal");
-    response = await request("user_id,username");
+  for (const v of variants) {
+    const url = new URL(`${v.base}/me`);
+    url.searchParams.set("fields", v.fields);
+    if (!v.bearer) url.searchParams.set("access_token", accessToken);
+
+    const response = await fetch(
+      url.toString(),
+      v.bearer
+        ? { headers: { Authorization: `Bearer ${accessToken}` } }
+        : undefined
+    );
+
+    if (response.ok) {
+      console.log(`[getUserInfo] variant accepted: ${v.name}`);
+      return handleResponse<InstagramUser>(response);
+    }
+
+    let why = "";
+    try {
+      const body = await response.clone().json();
+      why = body?.error?.message ?? "";
+    } catch {}
+    console.warn(`[getUserInfo] variant rejected: ${v.name} -> ${why.slice(0, 90)}`);
+    lastResponse = response;
   }
 
-  return handleResponse<InstagramUser>(response);
+  // Every variant failed: surface the last error through the normal path so the
+  // caller still gets a typed MetaApiError rather than a bare throw.
+  return handleResponse<InstagramUser>(lastResponse as Response);
 }
 
 const MEDIA_FIELDS =
