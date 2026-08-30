@@ -723,6 +723,11 @@ export async function getFollowerCountSeries(
 export async function getLongLivedToken(
   shortLivedToken: string
 ): Promise<{ accessToken: string; expiresIn: number }> {
+  // An empty token here makes Meta answer "Unsupported request - method type:
+  // get", which reads like a wrong endpoint rather than a missing value.
+  if (!shortLivedToken) {
+    throw new Error("getLongLivedToken called with an empty short-lived token");
+  }
   const url = new URL(`${instagramGraphBaseUnversioned()}/access_token`);
   url.searchParams.set("grant_type", "ig_exchange_token");
   url.searchParams.set("client_secret", requireEnv("INSTAGRAM_APP_SECRET"));

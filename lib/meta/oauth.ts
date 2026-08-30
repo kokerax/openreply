@@ -112,10 +112,25 @@ export async function exchangeCodeForToken(
     );
   }
 
-  const data = await response.json();
+  const raw = await response.json();
+
+  // Business Login for Instagram returns the payload wrapped in a `data` array
+  // ({"data":[{access_token,user_id,permissions}]}), while the older shape is a
+  // flat object. Reading `raw.access_token` against the wrapped shape yields
+  // undefined, and the empty token is only noticed one call later as
+  // "Unsupported request - method type: get (/access_token)" — an error that
+  // points at the wrong place entirely. Accept both shapes.
+  const payload = Array.isArray(raw?.data) ? raw.data[0] : raw;
+
+  if (!payload?.access_token) {
+    throw new Error(
+      `Token exchange returned no access_token (keys: ${Object.keys(raw ?? {}).join(",")})`
+    );
+  }
+
   return {
-    accessToken: data.access_token,
-    userId: String(data.user_id),
+    accessToken: payload.access_token,
+    userId: String(payload.user_id),
   };
 }
 
