@@ -41,6 +41,22 @@ import {
 
 const BACKOFF_DELAYS = [5 * 60 * 1000, 15 * 60 * 1000, 45 * 60 * 1000];
 
+/**
+ * True for the one Meta rejection that is not a rejection.
+ *
+ * `code=1` with no subcode ("An unknown error has occurred") is returned by the
+ * messages edge while the message still reaches the recipient. It is kept
+ * narrow deliberately: any code other than 1, or a code 1 that carries a
+ * subcode, describes a real refusal and must stay FAILED.
+ */
+function isDeliveredDespiteError(error: unknown): boolean {
+  return (
+    error instanceof MetaApiError &&
+    error.code === 1 &&
+    (error.subcode === undefined || error.subcode === null)
+  );
+}
+
 function formatError(error: unknown): string {
   if (error instanceof MetaApiError) {
     return `Meta API Error ${error.code}: ${error.message}`;
@@ -658,6 +674,29 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         },
       });
     } catch (error) {
+      // Meta's bare `code=1` on the messages edge is not a delivery failure.
+      // Verified on 2026-08-31: 41 sends that returned this error were checked
+      // against the account's own conversation threads afterwards and all 41
+      // messages were present — one recipient even replied to the message the
+      // API had just reported as failed. Recording it as FAILED made the DM
+      // look undelivered, and a retry then sent the same person a second copy.
+      // So it is recorded as sent, with the anomaly kept in errorMessage so the
+      // rate stays visible rather than being silently swallowed.
+      if (isDeliveredDespiteError(error)) {
+        await prisma.dmLog.update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: {
+            status: "SENT",
+            dmSentAt: new Date(),
+            attempts: job.attemptsMade + 1,
+            errorMessage: `teslim edildi, Meta yanlis hata dondu: ${formatError(error)}`,
+          },
+        });
+        return;
+      }
+
       await releaseWorkspaceDMReservation(
         automation.workspaceId,
         usage.periodStart
