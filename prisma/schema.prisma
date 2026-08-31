@@ -386,3 +386,57 @@ enum OperationalEventLevel {
   WARNING
   ERROR
 }
+
+// ─── Serverless kuyruk (Redis/BullMQ yerine) ──────────────────────────────────
+// Worker'i 7/24 acik tutmak bir sunucu gerektiriyordu; bu tablolar ayni isi
+// Postgres'te yapiyor ve isler Vercel Cron tarafindan bosaltiliyor.
+
+enum QueueJobStatus {
+  PENDING
+  ACTIVE
+  DONE
+  FAILED
+}
+
+model QueueJob {
+  id     String         @id @default(cuid())
+  name   String
+  data   Json
+  status QueueJobStatus @default(PENDING)
+
+  /// BullMQ'daki jobId'nin karsiligi: ayni anahtarla ikinci ekleme yok sayilir.
+  dedupeKey String? @unique
+  /// BullMQ'daki `delay` bunun uzerinden ifade edilir.
+  runAt     DateTime @default(now())
+
+  attempts    Int @default(0)
+  maxAttempts Int @default(3)
+
+  /// Ayni anda kosan iki cron cagrisinin ayni isi almasini engeller
+  /// (SELECT ... FOR UPDATE SKIP LOCKED ile birlikte).
+  lockedAt  DateTime?
+  lastError String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([status, runAt])
+  @@index([status, completedAt])
+}
+
+/// Hiz siniri sayaclari (Redis INCR + EXPIRE karsiligi).
+model RateCounter {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+/// Worker kalp atisi ve son hatalar (Redis anahtari + listesi karsiligi).
+model WorkerHealth {
+  id        String   @id
+  payload   Json
+  updatedAt DateTime @updatedAt
+}

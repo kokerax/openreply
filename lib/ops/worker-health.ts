@@ -1,4 +1,11 @@
-import { getRedisConnection } from "@/lib/queue/client";
+import { prisma } from "@/lib/db/client";
+import type { Prisma } from "@/app/generated/prisma/client";
+
+/**
+ * Kalp atisi ve uyarilar artik Postgres'te (Redis anahtari + listesi yerine).
+ * Serverless kurulumda 7/24 acik bir worker yok; "kalp atisi" son cron
+ * cagrisinin izidir. Bayatlik esigi ayni kaldi: 120 sn.
+ */
 
 const WORKER_HEALTH_KEY = "health:worker:dm";
 const WORKER_ALERTS_KEY = "alerts:worker:dm";
@@ -47,18 +54,23 @@ export async function recordWorkerHeartbeat(
     checkedAt: new Date().toISOString(),
   };
 
-  await getRedisConnection().set(
-    WORKER_HEALTH_KEY,
-    JSON.stringify(payload),
-    "EX",
-    WORKER_HEARTBEAT_TTL_SECONDS
-  );
+  // Prisma'nin Json alani `InputJsonValue` bekliyor; arayuz tipimiz ona
+  // dogrudan atanamiyor, bu yuzden acik donusum.
+  const json = payload as unknown as Prisma.InputJsonValue;
+  await prisma.workerHealth.upsert({
+    where: { id: WORKER_HEALTH_KEY },
+    create: { id: WORKER_HEALTH_KEY, payload: json },
+    update: { payload: json },
+  });
 }
 
 export async function getWorkerHealth(): Promise<WorkerHealth> {
-  const heartbeat = parseJson<WorkerHeartbeat>(
-    await getRedisConnection().get(WORKER_HEALTH_KEY)
-  );
+  const kayit = await prisma.workerHealth.findUnique({
+    where: { id: WORKER_HEALTH_KEY },
+  });
+  // Redis'te TTL kaydi kendiliginden siliyordu; burada bayatligi yasa gore
+  // degerlendiriyoruz, yoksa aylar once durmus bir worker "saglikli" gorunur.
+  const heartbeat = (kayit?.payload as unknown as WorkerHeartbeat | undefined) ?? null;
 
   if (!heartbeat) {
     return { healthy: false, heartbeat: null, ageMs: null };
@@ -78,19 +90,18 @@ export async function recordWorkerAlert(alert: Omit<WorkerAlert, "createdAt">) {
     createdAt: new Date().toISOString(),
   };
 
-  const redis = getRedisConnection();
-  await redis.lpush(WORKER_ALERTS_KEY, JSON.stringify(payload));
-  await redis.ltrim(WORKER_ALERTS_KEY, 0, 24);
+  const kayit = await prisma.workerHealth.findUnique({ where: { id: WORKER_ALERTS_KEY } });
+  const mevcut = Array.isArray(kayit?.payload) ? (kayit.payload as unknown as WorkerAlert[]) : [];
+  const yeni = [payload, ...mevcut].slice(0, 25) as unknown as Prisma.InputJsonValue;
+  await prisma.workerHealth.upsert({
+    where: { id: WORKER_ALERTS_KEY },
+    create: { id: WORKER_ALERTS_KEY, payload: yeni },
+    update: { payload: yeni },
+  });
 }
 
 export async function getWorkerAlerts(limit = 10): Promise<WorkerAlert[]> {
-  const values = await getRedisConnection().lrange(
-    WORKER_ALERTS_KEY,
-    0,
-    Math.max(0, limit - 1)
-  );
-
-  return values
-    .map((value) => parseJson<WorkerAlert>(value))
-    .filter((value): value is WorkerAlert => Boolean(value));
+  const kayit = await prisma.workerHealth.findUnique({ where: { id: WORKER_ALERTS_KEY } });
+  const hepsi = Array.isArray(kayit?.payload) ? (kayit.payload as unknown as WorkerAlert[]) : [];
+  return hepsi.slice(0, Math.max(0, limit));
 }

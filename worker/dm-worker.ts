@@ -1,55 +1,49 @@
-import { createDMWorker } from "@/lib/queue/dm-worker";
+/**
+ * Kendi kendine barindirma girisi.
+ *
+ * Vercel'de bu surece gerek yok — isler `/api/cron/drain` ve
+ * `/api/cron/poll-comments` uclarindan yurur. Bu dosya, kendi sunucusunda
+ * calistirmak isteyenler icin AYNI fonksiyonlari bir dongude cagirir; is
+ * mantigi tek yerde kalir, iki kopya olmaz.
+ */
+import { kuyrugunuBosalt } from "@/lib/queue/dm-worker";
 import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
+import { eskileriTemizle } from "@/lib/queue/pg-queue";
+import { sayaclariTemizle } from "@/lib/utils/pg-rate-limiter";
 import os from "node:os";
 
-const worker = createDMWorker();
-const startedAt = new Date().toISOString();
-const HEARTBEAT_INTERVAL_MS = 30_000;
-// Polling safety net for comments that webhooks miss. Runs in the worker because
-// it must fire every few minutes and Vercel's free crons only run once a day.
-const POLL_INTERVAL_MS = Number(
-  process.env.COMMENT_POLL_INTERVAL_MS ?? 5 * 60_000
-);
+const BOSALTMA_ARALIGI_MS = 5_000;
+const KALP_ATISI_MS = 30_000;
+const YOKLAMA_ARALIGI_MS = Number(process.env.COMMENT_POLL_INTERVAL_MS ?? 5 * 60_000);
+const basladi = new Date().toISOString();
 
-console.log("[DM Worker] Started");
-
-async function heartbeat() {
+async function kalpAtisi() {
   try {
-    await recordWorkerHeartbeat({
-      pid: process.pid,
-      hostname: os.hostname(),
-      startedAt,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[DM Worker] Heartbeat failed:", message);
+    await recordWorkerHeartbeat({ pid: process.pid, hostname: os.hostname(), startedAt: basladi });
+  } catch (e) {
+    console.error("[worker] kalp atisi yazilamadi:", (e as Error).message);
   }
 }
 
-void heartbeat();
-const heartbeatTimer = setInterval(() => void heartbeat(), HEARTBEAT_INTERVAL_MS);
-
-async function poll() {
-  try {
-    await reconcileComments();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[DM Worker] Comment reconciliation failed:", message);
+async function dongu() {
+  for (;;) {
+    try {
+      const s = await kuyrugunuBosalt({ enFazla: 25, sureSiniriMs: 60_000 });
+      if (s.alinan === 0) await new Promise((r) => setTimeout(r, BOSALTMA_ARALIGI_MS));
+    } catch (e) {
+      console.error("[worker] bosaltma hatasi:", (e as Error).message);
+      await new Promise((r) => setTimeout(r, BOSALTMA_ARALIGI_MS));
+    }
   }
 }
 
-// Kick off one sweep shortly after boot, then on a fixed interval.
-setTimeout(() => void poll(), 10_000);
-const pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
+void kalpAtisi();
+setInterval(() => void kalpAtisi(), KALP_ATISI_MS);
+setInterval(() => {
+  void reconcileComments().catch((e) => console.error("[worker] yoklama:", e.message));
+  void eskileriTemizle().catch(() => {});
+}, YOKLAMA_ARALIGI_MS);
 
-async function shutdown(signal: string) {
-  console.log(`[DM Worker] ${signal} received, closing worker`);
-  clearInterval(heartbeatTimer);
-  clearInterval(pollTimer);
-  await worker.close();
-  process.exit(0);
-}
-
-process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
+console.log("[worker] basladi (Postgres kuyrugu)");
+void dongu();

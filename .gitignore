@@ -43,3 +43,10 @@ next-env.d.ts
 
 /app/generated/prisma
 .gstack/
+
+# gecici yerel kurulum dosyalari
+/bootstrap_local.ts
+/seal_history.ts
+/test_pg_queue.ts
+/baslat.sh
+/durdur.sh

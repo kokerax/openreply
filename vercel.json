@@ -11,6 +11,14 @@
     {
       "path": "/api/cron/snapshot-followers",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/drain",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/poll-comments",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

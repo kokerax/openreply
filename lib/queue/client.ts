@@ -1,22 +1,12 @@
 /**
- * BullMQ Queue Client
+ * DM kuyrugu istemcisi.
  *
- * Provides the DM processing queue and Redis connection for BullMQ.
+ * Arkasi Redis/BullMQ degil Postgres (bkz. pg-queue.ts): 7/24 acik bir worker
+ * sureci gerektirmesin diye. `.add(name, data, { delay, jobId })` imzasi BullMQ
+ * ile ayni tutuldu, bu yuzden 13 cagri yerinin hicbiri degismedi.
  */
 
-import { Queue } from "bullmq";
-import Redis from "ioredis";
-
-let connection: Redis | null = null;
-
-export function getRedisConnection(): Redis {
-  if (!connection) {
-    connection = new Redis(process.env.REDIS_URL!, {
-      maxRetriesPerRequest: null, // Required by BullMQ
-    });
-  }
-  return connection;
-}
+import { PgQueue } from "./pg-queue";
 
 // ─── DM Queue ───────────────────────────────────────────────────────────────────
 
@@ -76,27 +66,9 @@ export const POSTBACK_JOB_NAME = "process-postback";
 export const FOLLOWUP_JOB_NAME = "process-followup";
 export const MESSAGE_JOB_NAME = "process-message";
 
-let dmQueue: Queue<DmQueueJob> | null = null;
+let dmQueue: PgQueue<DmQueueJob> | null = null;
 
-export function getDMQueue(): Queue<DmQueueJob> {
-  if (!dmQueue) {
-    dmQueue = new Queue<DmQueueJob>("dm-processing", {
-      connection: getRedisConnection(),
-      defaultJobOptions: {
-        removeOnComplete: { count: 1000 }, // Keep last 1000 completed jobs
-        // Clear failed jobs shortly after they exhaust retries. Job ids are
-        // deterministic (comment_<acct>_<id>), so a retained failed job would
-        // block the polling reconciler from ever retrying that comment. Clearing
-        // them lets a later sweep re-enqueue and try again once a transient
-        // failure (e.g. an Instagram rate-limit window) has passed. Failure
-        // detail is still preserved in DmLog.
-        removeOnFail: { age: 300, count: 2000 },
-        attempts: 3,
-        backoff: {
-          type: "custom",
-        },
-      },
-    });
-  }
+export function getDMQueue(): PgQueue<DmQueueJob> {
+  if (!dmQueue) dmQueue = new PgQueue<DmQueueJob>();
   return dmQueue;
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getDMQueue, getRedisConnection } from "@/lib/queue/client";
+import { getDMQueue } from "@/lib/queue/client";
 import { getWorkerHealth } from "@/lib/ops/worker-health";
 
 export const runtime = "nodejs";
@@ -27,17 +27,6 @@ async function checkDatabase(): Promise<HealthCheck> {
   }
 }
 
-async function checkRedis(): Promise<HealthCheck> {
-  try {
-    const pong = await getRedisConnection().ping();
-    return { status: pong === "PONG" ? "ok" : "error", detail: pong };
-  } catch (error) {
-    return {
-      status: "error",
-      detail: error instanceof Error ? error.message : "Redis check failed",
-    };
-  }
-}
 
 async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
   try {
@@ -57,9 +46,8 @@ async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
 }
 
 export async function GET() {
-  const [database, redis, queue, worker] = await Promise.all([
+  const [database, queue, worker] = await Promise.all([
     checkDatabase(),
-    checkRedis(),
     checkQueue(),
     getWorkerHealth().catch((error) => ({
       healthy: false,
@@ -71,7 +59,6 @@ export async function GET() {
 
   const healthy =
     database.status === "ok" &&
-    redis.status === "ok" &&
     queue.status === "ok" &&
     worker.healthy;
 
@@ -80,7 +67,6 @@ export async function GET() {
       status: healthy ? "ok" : "degraded",
       checks: {
         database,
-        redis,
         queue,
         worker,
       },

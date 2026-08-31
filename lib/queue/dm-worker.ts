@@ -1,7 +1,6 @@
-import { Worker, type Job } from "bullmq";
+import type { Job } from "bullmq";
 import {
   getDMQueue,
-  getRedisConnection,
   MESSAGE_JOB_NAME,
   POSTBACK_JOB_NAME,
   FOLLOWUP_JOB_NAME,
@@ -12,6 +11,7 @@ import {
   type ProcessFollowUpJob,
 } from "./client";
 import { prisma } from "@/lib/db/client";
+import { isleriKilitle, isiTamamla, isiBasarisizYap } from "./pg-queue";
 import {
   MetaApiError,
   RateLimitError,
@@ -27,7 +27,7 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
-import { reserveDMSlot } from "@/lib/utils/rate-limiter";
+import { reserveDMSlot } from "@/lib/utils/pg-rate-limiter";
 import {
   releaseWorkspaceDMReservation,
   reserveWorkspaceDMSend,
@@ -1225,7 +1225,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   }
 }
 
-async function processJob(job: Job<DmQueueJob>): Promise<void> {
+export async function processJob(job: Job<DmQueueJob>): Promise<void> {
   if (job.name === POSTBACK_JOB_NAME) {
     return processPostback(job as Job<ProcessPostbackJob>);
   }
@@ -1283,51 +1283,62 @@ async function recordWorkerFailure(
   }
 }
 
-export function createDMWorker(): Worker<DmQueueJob> {
-  const worker = new Worker<DmQueueJob>(
-    "dm-processing",
-    processJob,
-    {
-      connection: getRedisConnection(),
-      concurrency: 5,
-      settings: {
-        backoffStrategy: (attemptsMade: number) =>
-          BACKOFF_DELAYS[Math.min(attemptsMade - 1, BACKOFF_DELAYS.length - 1)],
-      },
-    }
-  );
+/**
+ * Kuyrugu bosalt — BullMQ Worker'in yerini alan tek giris noktasi.
+ *
+ * Hem Vercel Cron (`/api/cron/drain`) hem de kendi kendine barindirma icin
+ * `worker/dm-worker.ts` bunu cagirir; is mantigi (processJob) degismedi.
+ *
+ * `sureSiniriMs`: Vercel fonksiyonu zaman asimina ugramadan once durur. Yarim
+ * kalan isler PENDING'e geri doner, bir sonraki tur devam eder — is kaybi yok.
+ */
+export async function kuyrugunuBosalt(opts: {
+  enFazla?: number;
+  sureSiniriMs?: number;
+} = {}): Promise<{ alinan: number; basarili: number; basarisiz: number; sureDoldu: boolean }> {
+  const enFazla = opts.enFazla ?? 25;
+  const sureSiniri = opts.sureSiniriMs ?? 240_000;
+  const basla = Date.now();
 
-  worker.on("completed", (job) => {
-    console.log(`[DM Worker] Job ${job.id} completed`);
-  });
+  const isler = await isleriKilitle(enFazla);
+  let basarili = 0;
+  let basarisiz = 0;
+  let sureDoldu = false;
 
-  worker.on("failed", (job, err) => {
-    console.error(
-      `[DM Worker] Job ${job?.id} failed (attempt ${job?.attemptsMade}):`,
-      err.message
-    );
-    void recordWorkerFailure(job, err);
-  });
-
-  worker.on("error", (err) => {
-    console.error("[DM Worker] Worker error:", err.message);
-    void prisma.operationalEvent
-      .create({
-        data: {
-          source: "WORKER",
-          level: "ERROR",
-          message: `DM worker process error: ${err.message}`,
-          payload: { name: err.name },
-        },
-      })
-      .catch((recordError) => {
-        console.error(
-          "[DM Worker] Failed to record worker process error:",
-          formatError(recordError)
-        );
+  for (const is of isler) {
+    if (Date.now() - basla > sureSiniri) {
+      // Kalan kilitli isleri serbest birak, yoksa takilma esigine kadar beklerler.
+      await prisma.queueJob.updateMany({
+        where: { id: { in: isler.slice(isler.indexOf(is)).map((x) => x.id) }, status: "ACTIVE" },
+        data: { status: "PENDING", lockedAt: null },
       });
-  });
+      sureDoldu = true;
+      break;
+    }
 
-  return worker;
+    // processJob BullMQ'nun Job nesnesini bekliyor; isleyiciler bu dort alandan
+    // baskasini kullanmiyor (olculdu: data 8, attemptsMade 7, name 3, id 1).
+    const jobBenzeri = {
+      id: is.id,
+      name: is.name,
+      data: is.data,
+      attemptsMade: is.attempts,
+    } as unknown as Job<DmQueueJob>;
+
+    try {
+      await processJob(jobBenzeri);
+      await isiTamamla(is.id);
+      basarili++;
+    } catch (error) {
+      const mesaj = formatError(error);
+      const sonuc = await isiBasarisizYap(is.id, is.attempts, is.maxAttempts, mesaj);
+      if (sonuc === "BITTI") {
+        basarisiz++;
+        await recordWorkerFailure(jobBenzeri, error instanceof Error ? error : new Error(mesaj));
+      }
+      console.error(`[kuyruk] is ${is.id} (${is.name}) hata: ${mesaj}`);
+    }
+  }
+
+  return { alinan: isler.length, basarili, basarisiz, sureDoldu };
 }
-
