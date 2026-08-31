@@ -57,6 +57,45 @@ function isDeliveredDespiteError(error: unknown): boolean {
   );
 }
 
+/**
+ * Gönderim öncesi hız slotu al — YORUM DIŞINDAKİ yollar için.
+ *
+ * `reserveDMSlot` uzun süre yalnızca `processComment` içinden çağrıldı. Ama
+ * opening-DM'li akışta yoruma verilen cevap sadece butonlu açılış mesajıdır;
+ * **linki taşıyan asıl DM buton dokunuşundan (postback) gider** ve o yol
+ * sayaca hiç uğramıyordu. Aynısı DM-tetikleyici ve takip mesajı için de
+ * geçerliydi. Yani ölçülerek konulan 8/dk sınırı, korumak istediği gönderim
+ * sınıfının üzerinde çalışmıyordu: bir reel patlayıp 60 kişi aynı dakikada
+ * butona bastığında hiçbir fren yoktu.
+ *
+ * Slot yoksa iş kuyruğa geri konur (kaybolmaz); sabır tükenmişse atlanır.
+ * Dönüş `false` ise çağıran HEMEN dönmeli — gönderim yapılmamalıdır.
+ */
+async function hizSlotuAl(
+  instagramAccountId: string,
+  job: Job<DmQueueJob>,
+  isAdi: string
+): Promise<boolean> {
+  const deneme = job.attemptsMade ?? 0;
+  const slot = await reserveDMSlot(instagramAccountId, deneme);
+  if (slot.allowed) return true;
+
+  if (slot.shouldRequeue) {
+    await getDMQueue().add(job.name as string, job.data, {
+      delay: slot.requeueDelayMs,
+      // Tekillestirme anahtari denemeyi TASIR: aksi halde ikinci kuyruklama
+      // "zaten var" diye sessizce yutulur ve is sonsuza dek kaybolur.
+      jobId: `${isAdi}_retry_${deneme + 1}_${job.id}`,
+    });
+    console.log(
+      `[hiz] ${isAdi} ertelendi (${Math.round(slot.requeueDelayMs / 1000)} sn) — sayac ${slot.currentCount}`
+    );
+  } else {
+    console.log(`[hiz] ${isAdi} ATLANDI — sabir tukendi (deneme ${deneme})`);
+  }
+  return false;
+}
+
 function formatError(error: unknown): string {
   if (error instanceof MetaApiError) {
     return `Meta API Error ${error.code}: ${error.message}`;
@@ -841,6 +880,9 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     return;
   }
 
+  // Linki tasiyan asil DM bu yoldan gider; sinir burada da uygulanmali.
+  if (!(await hizSlotuAl(instagramAccountId, job as Job<DmQueueJob>, "postback"))) return;
+
   try {
     await sendRevealDirectMessage(
       accessToken,
@@ -955,6 +997,15 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
   } catch {
     return;
   }
+
+  if (
+    !(await hizSlotuAl(
+      automation.instagramAccount.instagramId,
+      job as Job<DmQueueJob>,
+      "followup"
+    ))
+  )
+    return;
 
   try {
     await sendDirectMessage(
@@ -1130,6 +1181,19 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       });
       continue;
     }
+
+    // DM-tetikleyici yolu: 30 Agustos'ta en yuksek hacim buradan aktı ve
+    // hicbir hiz sayacina ugramiyordu. `continue` kullaniliyor cunku ayni
+    // mesaja birden fazla kampanya eslesebilir — biri ertelenince digerleri
+    // denenmeye devam etmeli.
+    if (
+      !(await hizSlotuAl(
+        automation.instagramAccount.instagramId,
+        job as Job<DmQueueJob>,
+        "message"
+      ))
+    )
+      continue;
 
     try {
       if (sendFollowPrompt) {

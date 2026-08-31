@@ -19,6 +19,10 @@
     {
       "path": "/api/cron/poll-comments",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/teslimat-denetimi",
+      "schedule": "17 * * * *"
     }
   ]
 }

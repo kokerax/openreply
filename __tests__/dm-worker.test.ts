@@ -92,7 +92,7 @@ vi.mock("@/lib/utils/keyword-matcher", () => ({
   matchKeywords: mockMatchKeywords,
 }));
 
-vi.mock("@/lib/utils/rate-limiter", () => ({
+vi.mock("@/lib/utils/pg-rate-limiter", () => ({
   reserveDMSlot: mockReserveDMSlot,
 }));
 
@@ -128,7 +128,7 @@ vi.mock("bullmq", () => {
   };
 });
 
-import { createDMWorker } from "../lib/queue/dm-worker";
+import { processJob } from "../lib/queue/dm-worker";
 
 const usagePeriodStart = new Date("2026-05-01T00:00:00.000Z");
 
@@ -176,8 +176,10 @@ function getProcessor(): (job: {
   id: string;
   attemptsMade: number;
 }) => Promise<void> {
-  createDMWorker();
-  return (global as Record<string, unknown>).__dmWorkerProcessor as (job: {
+  // BullMQ Worker kalkti (kuyruk Postgres'e tasindi); is mantigi artik dogrudan
+  // disa acilan processJob'da. Testlerin kapsami degismedi — yalnizca giris
+  // noktasi degisti, eskiden global'e birakilan isleyici artik dogrudan cagriliyor.
+  return processJob as unknown as (job: {
     name?: string;
     data: typeof mockJobData | Record<string, unknown>;
     id: string;
