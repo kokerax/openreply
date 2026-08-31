@@ -21,6 +21,37 @@ const RATE_LIMIT_WINDOW = 3600; // 1 hour in seconds
 const REQUEUE_DELAY_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_REQUEUE_ATTEMPTS = 3;
 
+/**
+ * Burst cap, measured rather than guessed.
+ *
+ * The hourly cap above never bound in practice: on 2026-08-30 a wave of 170
+ * sends fit inside one hour yet Meta rejected 48 of them with a generic
+ * `code=1 OAuthException`. Grouping every send that day by minute shows where
+ * the wall actually is:
+ *
+ *     20+/min : 184 attempts,  48 errors  (26.1%)
+ *     10-19   :  15 attempts,   0 errors  ( 0.0%)
+ *      4-9    :  41 attempts,   1 error   ( 2.4%)
+ *      1-3    : 217 attempts,   6 errors  ( 2.8%)
+ *
+ * So the limit Meta enforces is a per-minute burst rate, not the hourly total.
+ * 8/min sits well inside the clean band with margin, and still allows 480/hour
+ * — below the hourly ceiling, so that cap keeps working as the outer bound.
+ *
+ * A blocked burst waits a minute, not the 30 minutes an hourly block waits:
+ * the window it is waiting for is a minute long.
+ */
+const BURST_MAX = 8;
+const BURST_WINDOW = 60; // seconds
+const BURST_REQUEUE_DELAY_MS = 65 * 1000;
+/**
+ * A burst wait is one minute, so the three retries allowed for an hourly block
+ * are far too few here: a wave of 45 comments would exhaust them in three
+ * minutes and silently drop everyone still queued. 30 gives half an hour of
+ * patience — enough to drain a large wave at 8/min without discarding anyone.
+ */
+const BURST_MAX_REQUEUE_ATTEMPTS = 30;
+
 let redis: Redis | null = null;
 
 function getRedis(): Redis {
@@ -160,6 +191,34 @@ export async function reserveDMSlot(
 ): Promise<RateLimitResult> {
   const client = getRedis();
   const key = `rate:dm:${instagramAccountId}`;
+
+  // Burst gate first. It is checked before the hourly slot so a burst-blocked
+  // job does not consume an hourly slot it never gets to use — otherwise a
+  // stalled wave would silently eat the hourly budget while sending nothing.
+  const burstKey = `rate:dm:burst:${instagramAccountId}`;
+  const burstResult = await client.eval(
+    RESERVE_DM_SLOT_SCRIPT,
+    1,
+    burstKey,
+    BURST_MAX,
+    BURST_WINDOW
+  );
+  const burstValues = Array.isArray(burstResult) ? burstResult : [];
+  if (toScriptNumber(burstValues[0]) !== 1) {
+    const burstCount = toScriptNumber(burstValues[1]);
+    if (requeueAttempt >= BURST_MAX_REQUEUE_ATTEMPTS) {
+      return blockedResult(burstCount, MAX_REQUEUE_ATTEMPTS);
+    }
+    return {
+      allowed: false,
+      currentCount: burstCount,
+      remainingDMs: 0,
+      shouldRequeue: true,
+      requeueDelayMs: BURST_REQUEUE_DELAY_MS,
+      shouldSkip: false,
+      reserved: false,
+    };
+  }
 
   const result = await client.eval(
     RESERVE_DM_SLOT_SCRIPT,
