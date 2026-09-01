@@ -59,6 +59,52 @@ export const authConfig = {
   },
   trustHost: true,
   secret: process.env.NEXTAUTH_SECRET,
+  /**
+   * Gerçek giriş hatasını veritabanına yaz.
+   *
+   * Auth.js istemciye yalnızca sekiz "güvenli" hata tipini gösterir
+   * (@auth/core/errors.js:412: CredentialsSignin, OAuthAccountNotLinked,
+   * OAuthCallbackError, AccessDenied, Verification, MissingCSRF,
+   * AccountNotLinked, WebAuthnVerificationError). Listede olmayan HER hata
+   * kullanıcıya `Configuration` diye görünür (@auth/core/index.js:131).
+   *
+   * Yani ekrandaki "There is a problem with the server configuration" bir
+   * teşhis değil, ÇÖP KUTUSU etiketidir: SMTP gönderimi başarısız olduğunda da
+   * aynı sayfa çıkar, çünkü `EmailSignInError` (errors.js:333) o listede yok.
+   *
+   * 2026-09-01'de tam bu yaşandı — kullanıcı bu ekranı gördü, yapılandırmada
+   * hiçbir sorun yoktu (env tam, callback uçtan uca çalışıyordu), sunucu logu
+   * da dışarıdan okunamadı. Gerçek hatayı buraya yazmak bir daha tahmin
+   * etmeyi bitirir; panelde ve denetimde görünür olur.
+   */
+  logger: {
+    error(error: Error) {
+      console.error("[auth]", error.name, error.message);
+      // Kayıt bir YAN ETKİDİR: yazma başarısız olursa giriş akışını bozma.
+      // Uretim derlemesinde sinif adi kucultuluyor ("S"), bu yuzden basliga
+      // Auth.js'in KENDI tipini yaziyoruz — okunur ve gruplanabilir olan o.
+      const tip = (error as { type?: string }).type ?? "Configuration";
+      void prisma.operationalEvent
+        .create({
+          data: {
+            source: "SYSTEM",
+            level: "ERROR",
+            message: `Giris hatasi: ${tip}`,
+            payload: {
+              ad: error.name,
+              mesaj: error.message,
+              kullaniciyaGorunen: tip,
+              yigin: error.stack?.slice(0, 900) ?? null,
+            },
+          },
+        })
+        .catch(() => {});
+    },
+    warn(kod: string) {
+      console.warn("[auth]", kod);
+    },
+    debug() {},
+  },
 } satisfies NextAuthConfig;
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);

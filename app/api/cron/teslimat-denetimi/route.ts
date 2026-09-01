@@ -153,6 +153,19 @@ export async function GET(request: NextRequest) {
   });
   if (takilan > 0) uyarilar.push(`${takilan} is 15 dakikadir kuyrukta bekliyor.`);
 
+  // Giris hatalari: kullaniciya hep "Configuration" gorunur (Auth.js yalnizca
+  // sekiz tipi istemciye acar), bu yuzden gercek tip yalnizca burada gorunur.
+  // Tek bir hata normaldir (suresi dolmus link); yigilma gercek arizadir.
+  const girisHatasi = await prisma.operationalEvent.count({
+    where: {
+      message: { startsWith: "Giris hatasi" },
+      createdAt: { gte: new Date(Date.now() - 3600_000) },
+    },
+  });
+  if (girisHatasi >= 5) {
+    uyarilar.push(`Son saatte ${girisHatasi} giris hatasi — panel girisi bozuk olabilir.`);
+  }
+
   const basarisiz = await prisma.dmLog.count({
     where: { status: "FAILED", createdAt: { gte: new Date(Date.now() - 3600_000) } },
   });
