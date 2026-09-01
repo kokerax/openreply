@@ -1,24 +1,30 @@
 /**
- * Stat Card
- *
- * Metric panel with label, value, and optional trend.
+ * Stat Card — label, value, optional hint line and trend.
  */
 
 interface StatCardProps {
   label: string;
   value: string | number;
+  /** Small secondary line, e.g. "42 today". */
+  hint?: string;
+  /** Delta text, e.g. "+12%" — colored by trendUp. */
   trend?: string;
   trendUp?: boolean;
 }
 
-export default function StatCard({ label, value, trend, trendUp }: StatCardProps) {
+export default function StatCard({ label, value, hint, trend, trendUp }: StatCardProps) {
   return (
-    <div className="panel rounded p-4">
+    <div className="panel p-4">
       <p className="text-sm text-muted">{label}</p>
-      <p className="text-2xl font-semibold text-foreground mt-1">{value}</p>
-      {trend && (
-        <p className={`text-xs mt-1 ${trendUp ? "text-success" : "text-error"}`}>
-          {trendUp ? "Up" : "Down"} {trend}
+      <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{value}</p>
+      {(hint || trend) && (
+        <p className="mt-1 flex items-center gap-2 text-xs text-muted">
+          {trend && (
+            <span className={trendUp ? "text-success" : "text-error"}>
+              {trendUp ? "▲" : "▼"} {trend}
+            </span>
+          )}
+          {hint && <span>{hint}</span>}
         </p>
       )}
     </div>

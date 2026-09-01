@@ -1,23 +1,31 @@
 "use client";
 
 /**
- * Sidebar Navigation
- *
- * Text-only nav with active state and workspace section.
+ * Sidebar navigation: icon + label, active state, workspace footer.
  */
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  IconActivity,
+  IconChart,
+  IconHome,
+  IconInbox,
+  IconList,
+  IconMegaphone,
+  IconSettings,
+  IconTrend,
+} from "@/components/icons";
 
 const navItems = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Overview", href: "/overview" },
-  { label: "Trend", href: "/trend" },
-  { label: "Inbox", href: "/inbox" },
-  { label: "Campaigns", href: "/campaigns" },
-  { label: "DM Logs", href: "/logs" },
-  { label: "Settings", href: "/settings" },
-  { label: "Diagnostics", href: "/diagnostics" },
+  { label: "Dashboard", href: "/dashboard", Icon: IconHome },
+  { label: "Campaigns", href: "/campaigns", Icon: IconMegaphone },
+  { label: "Inbox", href: "/inbox", Icon: IconInbox },
+  { label: "DM Logs", href: "/logs", Icon: IconList },
+  { label: "Overview", href: "/overview", Icon: IconChart },
+  { label: "Trend", href: "/trend", Icon: IconTrend },
+  { label: "Diagnostics", href: "/diagnostics", Icon: IconActivity },
+  { label: "Settings", href: "/settings", Icon: IconSettings },
 ];
 
 interface SidebarProps {
@@ -26,24 +34,21 @@ interface SidebarProps {
   workspaceName: string;
 }
 
-export default function Sidebar({
-  isOpen,
-  onClose,
-  workspaceName,
-}: SidebarProps) {
+export default function Sidebar({ isOpen, onClose, workspaceName }: SidebarProps) {
   const pathname = usePathname();
 
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/60 lg:hidden"
           onClick={onClose}
+          aria-hidden="true"
         />
       )}
 
       <aside
+        aria-label="Primary"
         className={`
           fixed top-0 left-0 z-50 h-dvh w-64 max-w-[85vw] shrink-0 bg-surface border-r border-border flex flex-col
           transition-transform duration-200 ease-out
@@ -51,8 +56,6 @@ export default function Sidebar({
           ${isOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        {/* Same reason as the top bar: the drawer is full height, so the
-            wordmark would otherwise land under the status bar. */}
         <div
           className="px-6 py-5 border-b border-border"
           style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}
@@ -62,26 +65,23 @@ export default function Sidebar({
           </Link>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
-            const isActive =
-              pathname === item.href || pathname.startsWith(item.href + "/");
+        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+          {navItems.map(({ label, href, Icon }) => {
+            const isActive = pathname === href || pathname.startsWith(href + "/");
             return (
               <Link
-                key={item.href}
-                href={item.href}
+                key={href}
+                href={href}
                 onClick={onClose}
                 aria-current={isActive ? "page" : undefined}
-                className={`
-                  block px-3 py-2.5 rounded text-sm
-                  ${
-                    isActive
-                      ? "bg-surface-hover text-foreground font-medium"
-                      : "text-muted hover:text-foreground hover:bg-surface-hover"
-                  }
-                `}
+                className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${
+                  isActive
+                    ? "bg-surface-hover text-foreground font-medium"
+                    : "text-muted hover:text-foreground hover:bg-surface-hover"
+                }`}
               >
-                {item.label}
+                <Icon size={17} className={isActive ? "text-accent" : ""} />
+                {label}
               </Link>
             );
           })}

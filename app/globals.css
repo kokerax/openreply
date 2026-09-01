@@ -1,27 +1,76 @@
 @import "tailwindcss";
 
-/* ManyChat Alternative — Design System
-   Plain and functional. No gradients, glass, glow, or animation. */
+/* OpenReply — Design System
+   Plain and functional. No gradients, glass, glow, or animation.
+   Two themes. Every color goes through a token; no raw hex in components. */
 
-@theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #18181b;
-  --color-surface: #f7f7f8;
-  --color-surface-hover: #efeff1;
-  --color-border: #e4e4e7;
-  --color-border-hover: #d4d4d8;
-  --color-muted: #71717a;
-  --color-accent: #f97316;
-  --color-accent-hover: #ea580c;
-  --color-success: #16a34a;
-  --color-error: #dc2626;
-  --color-warning: #d97706;
-  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, monospace;
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #ffffff;
+  --fg: #18181b;
+  --surface: #f7f7f8;
+  --surface-hover: #efeff1;
+  --border: #e4e4e7;
+  --border-hover: #d4d4d8;
+  --muted: #6b6b74;
+  --accent: #f97316;
+  --accent-hover: #ea580c;
+  --accent-soft: #fff3e8;
+  --success: #15803d;
+  --success-soft: #ecfdf3;
+  --error: #dc2626;
+  --error-soft: #fef2f2;
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
+  --info: #2563eb;
+  --info-soft: #eff6ff;
+  color-scheme: light;
 }
 
-html {
-  color-scheme: light;
+.dark {
+  --bg: #0f0f11;
+  --fg: #f4f4f5;
+  --surface: #18181b;
+  --surface-hover: #232327;
+  --border: #2a2a2f;
+  --border-hover: #3f3f46;
+  --muted: #a1a1aa;
+  --accent: #fb923c;
+  --accent-hover: #f97316;
+  --accent-soft: #2a1a0e;
+  --success: #4ade80;
+  --success-soft: #0f2418;
+  --error: #f87171;
+  --error-soft: #2a1414;
+  --warning: #fbbf24;
+  --warning-soft: #2a2110;
+  --info: #60a5fa;
+  --info-soft: #101c2e;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-error: var(--error);
+  --color-error-soft: var(--error-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, monospace;
 }
 
 body {
@@ -36,17 +85,13 @@ body {
   outline-offset: 2px;
 }
 
-/* Form fields already have a border, so keep the focus ring hugging the
-   field instead of bleeding up toward the label above it. */
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline-offset: 1px;
 }
 
-/* iOS Safari zooms the whole page in when a focused field's text is under 16px,
-   and never zooms back out. Fields are text-sm (14px) throughout, so raise them
-   to 16px on phones and leave the desktop sizing alone. */
+/* iOS Safari zooms in when a focused field's text is under 16px. */
 @media (max-width: 640px) {
   input,
   textarea,
@@ -55,30 +100,193 @@ select:focus-visible {
   }
 }
 
-/* Panel — flat container. Replaces .glass / .glass-strong. */
+/* ---------- Primitives (use these instead of ad-hoc classes) ---------- */
+
+/* Container */
 .panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
 }
 
-/* Kept as no-op aliases so existing markup degrades to plain surfaces
-   instead of breaking. Prefer .panel in new code. */
+/* Buttons: .btn + one variant. Same radius everywhere (0.375rem). */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms, border-color 120ms, color 120ms;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--color-accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+.btn-secondary {
+  background: var(--color-background);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--color-muted);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+.btn-danger {
+  background: var(--color-error-soft);
+  border-color: transparent;
+  color: var(--color-error);
+}
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--color-error);
+}
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.btn-icon {
+  padding: 0.375rem;
+}
+
+/* Inputs */
+.input {
+  width: 100%;
+  border-radius: 0.375rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.input::placeholder {
+  color: var(--color-muted);
+  opacity: 0.8;
+}
+.input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+.input-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+}
+.field-label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.field-error {
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--color-error);
+}
+
+/* Pills / badges: tinted background + colored text. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+.pill-success { background: var(--color-success-soft); color: var(--color-success); }
+.pill-error { background: var(--color-error-soft); color: var(--color-error); }
+.pill-warning { background: var(--color-warning-soft); color: var(--color-warning); }
+.pill-info { background: var(--color-info-soft); color: var(--color-info); }
+.pill-muted { background: var(--color-surface-hover); color: var(--color-muted); }
+.pill-accent { background: var(--color-accent-soft); color: var(--color-accent); }
+
+/* Tables: one style for every data table. */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  background: var(--color-surface);
+}
+.table td {
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+  background: var(--color-background);
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table tbody tr:hover td {
+  background: var(--color-surface-hover);
+}
+.table td.num,
+.table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Section header inside a page */
+.section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+/* Legacy aliases — keep old markup rendering as plain surfaces. */
 .glass,
 .glass-strong {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
 }
-
-.gradient-mesh {
-  background: none;
-}
-
+.gradient-mesh { background: none; }
 .animate-fade-in,
 .animate-slide-in,
 .animate-pulse-glow,
-.stagger > * {
-  animation: none;
-}
+.stagger > * { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *,

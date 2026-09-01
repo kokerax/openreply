@@ -95,6 +95,10 @@ export const authConfig = {
               mesaj: error.message,
               kullaniciyaGorunen: tip,
               yigin: error.stack?.slice(0, 900) ?? null,
+              // AdapterError/EmailSignInError gibi sarmalayicilar ASIL hatayi
+              // `cause` icinde tasir (Prisma/SMTP mesaji). Onsuz kayit "Read
+              // more at errors.authjs.dev" der ve teshis edilemez.
+              sebep: sebepMetni(error),
             },
           },
         })
@@ -106,6 +110,20 @@ export const authConfig = {
     debug() {},
   },
 } satisfies NextAuthConfig;
+
+/** Sarmalanmis hatanin kokunu duz metne cevirir (en fazla 3 katman). */
+function sebepMetni(error: unknown): string | null {
+  const parcalar: string[] = [];
+  let cur: unknown = (error as { cause?: unknown })?.cause;
+  for (let i = 0; i < 3 && cur; i++) {
+    const c = cur as { err?: unknown; message?: string; code?: string; name?: string; cause?: unknown };
+    const inner = (c.err ?? c) as { message?: string; code?: string; name?: string; cause?: unknown };
+    const parca = [inner.name, inner.code, inner.message].filter(Boolean).join(" ");
+    if (parca) parcalar.push(parca.slice(0, 400));
+    cur = inner.cause ?? (c.err ? (c.err as { cause?: unknown }).cause : undefined);
+  }
+  return parcalar.length ? parcalar.join(" <- ") : null;
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
 

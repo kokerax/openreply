@@ -17,6 +17,9 @@ export interface WorkerHeartbeat {
   pid: number;
   hostname?: string;
   startedAt?: string;
+  /** Vercel bolgesi (VERCEL_REGION) — cron kurulumunda hangi bolgenin
+   *  bosalttigini gormek icin; klasik worker'da genelde yok. */
+  region?: string;
   checkedAt: string;
 }
 
@@ -47,8 +50,11 @@ function parseJson<T>(value: string | null): T | null {
 export async function recordWorkerHeartbeat(
   heartbeat: Omit<WorkerHeartbeat, "checkedAt" | "status" | "worker">
 ) {
+  // Cagiranlar bolgeyi bilmez; serverless'ta ortamdan okunur, yoksa alan yazilmaz.
+  const region = heartbeat.region ?? process.env.VERCEL_REGION ?? undefined;
   const payload: WorkerHeartbeat = {
     ...heartbeat,
+    ...(region ? { region } : {}),
     status: "running",
     worker: "dm",
     checkedAt: new Date().toISOString(),
@@ -104,4 +110,15 @@ export async function getWorkerAlerts(limit = 10): Promise<WorkerAlert[]> {
   const kayit = await prisma.workerHealth.findUnique({ where: { id: WORKER_ALERTS_KEY } });
   const hepsi = Array.isArray(kayit?.payload) ? (kayit.payload as unknown as WorkerAlert[]) : [];
   return hepsi.slice(0, Math.max(0, limit));
+}
+
+/**
+ * Panelde kirmizi rozet esigi: 3 dakika. `healthy` (120 sn) ile ayni sey
+ * DEGIL — o cron'un dogal aralik payi, bu "birisi baksin" siniri.
+ */
+export const KALP_ATISI_KIRMIZI_MS = 3 * 60_000;
+
+/** Yas bilinmiyorsa (hic kalp atisi yok) da bayat sayilir. */
+export function kalpAtisiBayatMi(ageMs: number | null, esikMs = KALP_ATISI_KIRMIZI_MS): boolean {
+  return ageMs === null || ageMs > esikMs;
 }

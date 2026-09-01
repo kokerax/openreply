@@ -176,3 +176,158 @@ export async function eskileriTemizle(): Promise<{ done: number; failed: number 
   });
   return { done: done.count, failed: failed.count };
 }
+
+/* ───────────────────────── Yonetim yardimcilari (panel) ──────────────────────
+ * Asagidakiler /api/admin/queue icin eklendi. Yukaridaki fonksiyonlar
+ * degistirilmedi (uretim + testler onlara bagli). Zaman her yerde uygulamadan
+ * parametre olarak gecilir — SQL'de NOW() yok (bkz. isleriKilitle notu).
+ */
+
+/**
+ * ACTIVE bir isin "takilmis" sayilmasi icin gecmesi gereken sure (dakika).
+ * `isleriKilitle(limit, takilmaDk = 10)`'daki varsayilanla AYNI deger; oradaki
+ * imza degistirilmedigi icin burada ayrica adlandiriliyor. Ikisini birlikte
+ * degistir.
+ */
+export const TAKILMA_ESIGI_DK = 10;
+
+export type YonetimIsDurumu = "PENDING" | "ACTIVE" | "DONE" | "FAILED";
+
+/** Panelin varsayilan filtresi: bitmemis isler. */
+export const BITMEMIS_DURUMLAR: YonetimIsDurumu[] = ["PENDING", "ACTIVE", "FAILED"];
+
+export interface YonetimIsi {
+  id: string;
+  name: string;
+  data: unknown;
+  status: YonetimIsDurumu;
+  dedupeKey: string | null;
+  runAt: Date;
+  attempts: number;
+  maxAttempts: number;
+  lockedAt: Date | null;
+  lastError: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
+}
+
+/**
+ * Isin hangi Instagram hesabina ait oldugunu `data`'dan okur. Dort is tipi de
+ * (`ProcessCommentJob`, `ProcessPostbackJob`, `ProcessFollowUpJob`,
+ * `ProcessMessageJob`) bu alani tasir; tasimayan bir kayit hicbir calisma
+ * alanina ait sayilmaz (null).
+ */
+export function isinHesabi(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const deger = (data as { instagramAccountId?: unknown }).instagramAccountId;
+  return typeof deger === "string" && deger.length > 0 ? deger : null;
+}
+
+/** Is, verilen hesaplardan birine mi ait? Hesapsiz is -> false (sizdirma). */
+export function isCalismaAlaninaAitMi(data: unknown, hesapIdleri: string[]): boolean {
+  const hesap = isinHesabi(data);
+  return hesap !== null && hesapIdleri.includes(hesap);
+}
+
+/** Prisma JSON filtresi: data.instagramAccountId IN (hesaplar). */
+function hesapFiltresi(hesapIdleri: string[]): Prisma.QueueJobWhereInput {
+  return {
+    OR: hesapIdleri.map((id) => ({
+      data: { path: ["instagramAccountId"], equals: id },
+    })),
+  };
+}
+
+const YONETIM_SECIMI = {
+  id: true,
+  name: true,
+  data: true,
+  status: true,
+  dedupeKey: true,
+  runAt: true,
+  attempts: true,
+  maxAttempts: true,
+  lockedAt: true,
+  lastError: true,
+  createdAt: true,
+  completedAt: true,
+} as const;
+
+/**
+ * Calisma alaninin hesaplarina ait isleri listele.
+ * Hesap listesi bossa sorgu bile atilmaz: bos OR Prisma'da "hepsi" degil ama
+ * niyeti acikca kodlamak daha guvenli.
+ */
+export async function isleriListele(opts: {
+  hesapIdleri: string[];
+  durumlar?: YonetimIsDurumu[];
+  limit?: number;
+}): Promise<YonetimIsi[]> {
+  if (opts.hesapIdleri.length === 0) return [];
+  const durumlar = opts.durumlar?.length ? opts.durumlar : BITMEMIS_DURUMLAR;
+  const kayitlar = await prisma.queueJob.findMany({
+    where: { status: { in: durumlar }, ...hesapFiltresi(opts.hesapIdleri) },
+    orderBy: [{ runAt: "desc" }],
+    take: Math.min(Math.max(opts.limit ?? 100, 1), 500),
+    select: YONETIM_SECIMI,
+  });
+  return kayitlar as YonetimIsi[];
+}
+
+/** Tek isi getir (sahiplik kontrolu icin data dahil). */
+export async function isiGetir(id: string): Promise<YonetimIsi | null> {
+  const kayit = await prisma.queueJob.findUnique({ where: { id }, select: YONETIM_SECIMI });
+  return (kayit as YonetimIsi | null) ?? null;
+}
+
+/** Retry: PENDING'e cek, hemen calissin, deneme sayaci sifir, kilit yok. */
+export async function isiYenidenKuyrukla(id: string, simdi = new Date()): Promise<void> {
+  await prisma.queueJob.update({
+    where: { id },
+    data: { status: "PENDING", runAt: simdi, attempts: 0, lockedAt: null, completedAt: null },
+  });
+}
+
+export async function isiSil(id: string): Promise<void> {
+  await prisma.queueJob.delete({ where: { id } });
+}
+
+/** Toplu retry: calisma alaninin FAILED isleri. Kac is etkilendi doner. */
+export async function basarisizlariYenidenKuyrukla(
+  hesapIdleri: string[],
+  simdi = new Date()
+): Promise<number> {
+  if (hesapIdleri.length === 0) return 0;
+  const sonuc = await prisma.queueJob.updateMany({
+    where: { status: "FAILED", ...hesapFiltresi(hesapIdleri) },
+    data: { status: "PENDING", runAt: simdi, attempts: 0, lockedAt: null, completedAt: null },
+  });
+  return sonuc.count;
+}
+
+/** Toplu temizlik: N gunden eski DONE isler. Kac is silindi doner. */
+export async function eskiTamamlananlariSil(
+  hesapIdleri: string[],
+  gunOnce = 7,
+  simdi = new Date()
+): Promise<number> {
+  if (hesapIdleri.length === 0) return 0;
+  const esik = new Date(simdi.getTime() - gunOnce * 24 * 3600_000);
+  const sonuc = await prisma.queueJob.deleteMany({
+    where: { status: "DONE", completedAt: { lt: esik }, ...hesapFiltresi(hesapIdleri) },
+  });
+  return sonuc.count;
+}
+
+/** ACTIVE olup kilidi esikten eski isler — cron zaman asimina ugramis demek. */
+export async function takilanIsSayisi(
+  hesapIdleri: string[],
+  simdi = new Date(),
+  takilmaDk = TAKILMA_ESIGI_DK
+): Promise<number> {
+  if (hesapIdleri.length === 0) return 0;
+  const esik = new Date(simdi.getTime() - takilmaDk * 60_000);
+  return prisma.queueJob.count({
+    where: { status: "ACTIVE", lockedAt: { lt: esik }, ...hesapFiltresi(hesapIdleri) },
+  });
+}

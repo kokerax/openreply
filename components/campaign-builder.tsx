@@ -17,6 +17,8 @@ import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
+import StatusBadge from "@/components/status-badge";
+import { useToast } from "@/components/toast";
 import { readCache, writeCache } from "@/lib/client-cache";
 import {
   IMPORT_QUEUE_KEY,
@@ -27,15 +29,63 @@ import {
 type TriggerScope = "specific" | "any" | "next";
 type MatchMode = "specific" | "any";
 
+/** Fields that get an inline `.field-error` under them. */
+type FieldErrors = Partial<
+  Record<
+    | "name"
+    | "postId"
+    | "keywords"
+    | "dmMessage"
+    | "openingDm"
+    | "trackedDestinationUrl"
+    | "secondaryDestinationUrl",
+    string
+  >
+>;
+
+// Goal is free text on the API (max 120); these are the values the built-in
+// templates use, offered as a select so reports stay consistent.
+const GOAL_OPTIONS = [
+  "Product link request",
+  "Lead magnet delivery",
+  "Launch waitlist",
+  "Price or availability reply",
+  "Agency client campaign",
+] as const;
+
+function isHttpUrl(value: string) {
+  if (!/^https?:\/\//i.test(value)) return false;
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Server-side zod field names → the builder's inline error slots.
+const SERVER_FIELD_MAP: Record<string, keyof FieldErrors> = {
+  name: "name",
+  postId: "postId",
+  keywords: "keywords",
+  dmMessage: "dmMessage",
+  openingDmMessage: "openingDm",
+  openingDmButtonLabel: "openingDm",
+  trackedDestinationUrl: "trackedDestinationUrl",
+  secondaryDestinationUrl: "secondaryDestinationUrl",
+};
+
 interface LoadedCampaign {
   id: string;
   name: string;
+  goal: string | null;
   postId: string | null;
   postUrl: string | null;
   pendingNextReel: boolean;
   matchAnyPost: boolean;
   keywords: string[];
   matchAnyWord: boolean;
+  wholeWordMatch?: boolean;
   dmTriggerEnabled: boolean;
   dmMessage: string;
   openingDmEnabled: boolean;
@@ -76,52 +126,85 @@ function Section({
   );
 }
 
+/** A radio group with a visible legend; children are `Radio`s (and any
+ * dependent inputs shown between them). */
+function RadioGroup({
+  title,
+  error,
+  children,
+}: {
+  title: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <fieldset className="min-w-0">
+      <legend className="text-sm font-semibold text-foreground">{title}</legend>
+      <div className="mt-3 space-y-3">{children}</div>
+      {error && <p className="field-error">{error}</p>}
+    </fieldset>
+  );
+}
+
 function Radio({
+  name,
+  value,
   checked,
   onSelect,
   children,
 }: {
+  name: string;
+  value: string;
   checked: boolean;
   onSelect: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
-        checked ? "border-accent bg-accent/5" : "border-border hover:border-border-hover"
+    <label
+      className={`flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/40 ${
+        checked ? "border-accent bg-accent-soft" : "border-border hover:border-border-hover"
       }`}
     >
-      <span
-        className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
-          checked ? "border-accent" : "border-zinc-500"
-        }`}
-      >
-        {checked && <span className="h-2 w-2 rounded-full bg-accent" />}
-      </span>
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={checked}
+        onChange={onSelect}
+        className="h-4 w-4 shrink-0 accent-accent"
+      />
       <span className="flex-1 text-foreground">{children}</span>
-    </button>
+    </label>
   );
 }
 
 function Toggle({
   on,
   onToggle,
+  label,
+  labelledBy,
 }: {
   on: boolean;
   onToggle: () => void;
+  /** Accessible name when there is no visible label element to point at. */
+  label?: string;
+  /** id of the visible label element. */
+  labelledBy?: string;
 }) {
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      aria-labelledby={labelledBy}
       onClick={onToggle}
       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-        on ? "bg-accent" : "bg-zinc-300"
+        on ? "bg-accent" : "bg-border-hover"
       }`}
     >
       <span
-        className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+        className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
           on ? "left-6" : "left-1"
         }`}
       />
@@ -131,6 +214,7 @@ function Toggle({
 
 export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderProps) {
   const router = useRouter();
+  const toast = useToast();
 
   const [loading, setLoading] = useState(mode === "edit");
   const [notFound, setNotFound] = useState(false);
@@ -143,6 +227,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
+  const [goal, setGoal] = useState("");
+  const [wholeWordMatch, setWholeWordMatch] = useState(true);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const [triggerScope, setTriggerScope] = useState<TriggerScope>("specific");
   const [postId, setPostId] = useState<string | null>(null);
@@ -250,6 +337,8 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         const c = (payload.data as LoadedCampaign[]).find((x) => x.id === campaignId);
         if (!c) return setNotFound(true);
         setName(c.name);
+        setGoal(c.goal ?? "");
+        setWholeWordMatch(c.wholeWordMatch ?? true);
         setSelectedAccountId(c.instagramAccountId);
         setTriggerScope(
           c.matchAnyPost ? "any" : c.pendingNextReel ? "next" : "specific"
@@ -321,7 +410,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   // Prefill the editable fields from one queued import row. The reel is left
   // unset so the user picks it per row.
   function prefillFromRow(row: ImportRow) {
-    setName(row.name ?? "");
+    // Name is required; an unnamed CSV row gets a recognisable default.
+    setName(row.name?.trim() || `Imported: ${row.keywords?.[0] ?? "campaign"}`);
+    setGoal("");
+    setWholeWordMatch(true);
+    setFieldErrors({});
     setTriggerScope("specific");
     setPostId(null);
     setPostUrl(null);
@@ -383,22 +476,56 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
     setDmMessage((cur) => (cur.includes("{link}") ? cur : `${cur.trim()} {link}`.trim()));
   }
 
+  /** Client-side checks mirroring the API's zod rules, keyed by field. */
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
+    if (!name.trim()) errors.name = "Give the campaign a name.";
+    if (triggerScope === "specific" && !postId)
+      errors.postId = "Pick a post or reel to trigger the campaign.";
+    if (matchMode === "specific" && keywords.length === 0)
+      errors.keywords = "Add at least one keyword, or switch to any word.";
+    if (!dmMessage.trim()) errors.dmMessage = "Add the DM with the link.";
+    if (openingDmEnabled && (!openingDmMessage.trim() || !openingDmButtonLabel.trim()))
+      errors.openingDm = "Your opening DM needs a message and a button label.";
+    if (linkOpen && trackedDestinationUrl.trim() && !isHttpUrl(trackedDestinationUrl.trim()))
+      errors.trackedDestinationUrl = "Enter a full URL starting with http:// or https://.";
+    if (
+      secondLinkOpen &&
+      secondaryDestinationUrl.trim() &&
+      !isHttpUrl(secondaryDestinationUrl.trim())
+    )
+      errors.secondaryDestinationUrl = "Enter a full URL starting with http:// or https://.";
+    return errors;
+  }
+
+  function clearFieldError(field: keyof FieldErrors) {
+    setFieldErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+  }
+
   async function handleSubmit(activeValue: boolean) {
     setError(null);
 
-    if (!selectedAccountId) return setError("Connect an Instagram account first.");
-    if (triggerScope === "specific" && !postId)
-      return setError("Pick a post or reel to trigger the campaign.");
-    if (matchMode === "specific" && keywords.length === 0)
-      return setError("Add at least one keyword, or switch to any word.");
-    if (!dmMessage.trim()) return setError("Add the DM with the link.");
-    if (openingDmEnabled && (!openingDmMessage.trim() || !openingDmButtonLabel.trim()))
-      return setError("Your opening DM needs a message and a button label.");
+    if (!selectedAccountId) {
+      setError("Connect an Instagram account first.");
+      toast.error("Connect an Instagram account first");
+      return;
+    }
+    const errors = validate();
+    setFieldErrors(errors);
+    if (Object.values(errors).some(Boolean)) {
+      setError("Fix the highlighted fields to continue.");
+      toast.error("Some fields need attention");
+      if (typeof window !== "undefined")
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
 
     setSaving(true);
 
     const payload = {
-      name: name.trim() || `Campaign for @${username}`,
+      name: name.trim(),
+      goal: goal.trim() || null,
+      wholeWordMatch,
       instagramAccountId: selectedAccountId,
       postId: triggerScope === "specific" ? postId : null,
       postUrl: triggerScope === "specific" ? postUrl : null,
@@ -444,7 +571,14 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               body: JSON.stringify(payload),
             });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
+        if (importQueue) {
+          toast.success(
+            `Saved "${payload.name}" (${importTotal - importQueue.length + 1} of ${importTotal})`
+          );
+        } else {
+          toast.success(mode === "new" ? "Campaign created" : "Campaign saved");
+        }
         // The post we just assigned is now in use. Reflect it immediately so
         // the picker flags it on the next imported row — the fetch that builds
         // this map doesn't re-run while the builder stays mounted through the
@@ -483,22 +617,29 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         router.push("/campaigns");
         router.refresh();
       } else {
-        // Surface the specific field that failed validation instead of a
-        // generic "Invalid input".
-        const fieldErrors = data.details?.fieldErrors as
+        // Surface the specific field that failed validation, inline under the
+        // field and in the banner, instead of a generic "Invalid input".
+        const serverErrors = data.details?.fieldErrors as
           | Record<string, string[]>
           | undefined;
-        const firstField = fieldErrors && Object.keys(fieldErrors)[0];
-        setError(
-          firstField
-            ? `${firstField}: ${fieldErrors[firstField][0]}`
-            : data.error ?? "Failed to save campaign"
-        );
+        const mapped: FieldErrors = {};
+        for (const [field, messages] of Object.entries(serverErrors ?? {})) {
+          const slot = SERVER_FIELD_MAP[field];
+          if (slot && messages[0]) mapped[slot] = messages[0];
+        }
+        setFieldErrors(mapped);
+        const firstField = serverErrors && Object.keys(serverErrors)[0];
+        const message = firstField
+          ? `${firstField}: ${serverErrors[firstField][0]}`
+          : data.error ?? "Failed to save campaign";
+        setError(message);
+        toast.error(message);
         if (typeof window !== "undefined")
           window.scrollTo({ top: 0, behavior: "smooth" });
       }
     } catch {
       setError("Failed to save campaign");
+      toast.error("Failed to save campaign — check your connection and try again");
     } finally {
       setSaving(false);
     }
@@ -542,7 +683,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         <p className="text-sm text-muted">Campaign not found.</p>
         <button
           onClick={() => router.push("/campaigns")}
-          className="mt-4 rounded border border-border px-4 py-2 text-sm text-muted hover:text-foreground"
+          className="btn btn-secondary mt-4"
         >
           Back to campaigns
         </button>
@@ -572,13 +713,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               <span className="truncate text-sm font-semibold text-foreground">
                 {name || "Untitled campaign"}
               </span>
-              <span
-                className={`rounded px-2 py-0.5 text-xs font-semibold ${
-                  isActive ? "bg-success/15 text-success" : "bg-zinc-500/15 text-muted"
-                }`}
-              >
-                {isActive ? "LIVE" : "PAUSED"}
-              </span>
+              <StatusBadge status={isActive ? "ACTIVE" : "PAUSED"} />
             </>
           ) : (
             <span className="text-sm text-muted">New campaign</span>
@@ -590,7 +725,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               type="button"
               onClick={skipRow}
               disabled={saving}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground disabled:opacity-50"
+              className="btn btn-secondary"
             >
               {importQueue.length > 1 ? "Skip" : "Skip & finish"}
             </button>
@@ -601,7 +736,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                 type="button"
                 onClick={() => handleSubmit(false)}
                 disabled={saving}
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground disabled:opacity-50"
+                className="btn btn-secondary"
               >
                 Stop
               </button>
@@ -610,7 +745,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                 type="button"
                 onClick={() => handleSubmit(true)}
                 disabled={saving}
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground disabled:opacity-50"
+                className="btn btn-secondary"
               >
                 Go Live
               </button>
@@ -619,7 +754,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             type="button"
             onClick={() => handleSubmit(mode === "new" ? true : isActive)}
             disabled={saving}
-            className="rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            className="btn btn-primary"
           >
             {saving ? "Saving…" : mode === "new" ? "Go Live" : "Save changes"}
           </button>
@@ -632,23 +767,63 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       {/* Left: controls */}
       <div className="space-y-8 min-w-0">
         {error && (
-          <div className="rounded border border-error/20 bg-error/10 p-3 text-sm text-error">
+          <div
+            role="alert"
+            className="rounded-md border border-error/40 bg-error-soft p-3 text-sm text-error"
+          >
             {error}
           </div>
         )}
 
         <div className="space-y-3">
-          <label className="text-sm font-semibold text-foreground">
-            Campaign name{" "}
-            <span className="font-normal text-muted">(optional)</span>
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. YC referral"
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
-            maxLength={100}
-          />
+          <div>
+            <label htmlFor="campaign-name" className="text-sm font-semibold text-foreground">
+              Campaign name
+            </label>
+            <input
+              id="campaign-name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearFieldError("name");
+              }}
+              placeholder="e.g. YC referral"
+              className="input mt-2"
+              maxLength={100}
+              required
+              aria-invalid={Boolean(fieldErrors.name)}
+              aria-describedby={fieldErrors.name ? "campaign-name-error" : undefined}
+            />
+            {fieldErrors.name && (
+              <p id="campaign-name-error" className="field-error">
+                {fieldErrors.name}
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="campaign-goal" className="text-sm font-semibold text-foreground">
+              Goal <span className="font-normal text-muted">(optional)</span>
+            </label>
+            <select
+              id="campaign-goal"
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              className="input mt-2"
+            >
+              <option value="">No goal set</option>
+              {(GOAL_OPTIONS.includes(goal as (typeof GOAL_OPTIONS)[number]) || !goal
+                ? [...GOAL_OPTIONS]
+                : [...GOAL_OPTIONS, goal]
+              ).map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted">
+              Shown on the shared report to explain what the campaign is for.
+            </p>
+          </div>
           {accounts.length > 1 && (
             <div className="pt-2">
               <AccountSelect
@@ -667,10 +842,15 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
           )}
         </div>
 
-        <Section title="When someone comments on">
+        <RadioGroup title="When someone comments on" error={fieldErrors.postId}>
           <Radio
+            name="triggerScope"
+            value="specific"
             checked={triggerScope === "specific"}
-            onSelect={() => setTriggerScope("specific")}
+            onSelect={() => {
+              setTriggerScope("specific");
+              clearFieldError("postId");
+            }}
           >
             a specific post or reel
           </Radio>
@@ -680,54 +860,111 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                 selectedPostId={postId}
                 instagramAccountId={selectedAccountId}
                 usedPostIds={usedPosts}
-                onSelect={handlePostSelect}
+                onSelect={(id, url, thumb, caption) => {
+                  handlePostSelect(id, url, thumb, caption);
+                  clearFieldError("postId");
+                }}
               />
             </div>
           )}
           <Radio
+            name="triggerScope"
+            value="any"
             checked={triggerScope === "any"}
-            onSelect={() => setTriggerScope("any")}
+            onSelect={() => {
+              setTriggerScope("any");
+              clearFieldError("postId");
+            }}
           >
             any post or reel
           </Radio>
           <Radio
+            name="triggerScope"
+            value="next"
             checked={triggerScope === "next"}
-            onSelect={() => setTriggerScope("next")}
+            onSelect={() => {
+              setTriggerScope("next");
+              clearFieldError("postId");
+            }}
           >
             next post or reel
           </Radio>
-        </Section>
+        </RadioGroup>
 
-        <Section title="And this comment has">
+        <RadioGroup title="And this comment has">
           <Radio
+            name="matchMode"
+            value="specific"
             checked={matchMode === "specific"}
             onSelect={() => setMatchMode("specific")}
           >
             a specific word or words
           </Radio>
           {matchMode === "specific" && (
-            <div className="space-y-1">
-              <input
-                value={keywordText}
-                onChange={(e) => setKeywordText(e.target.value)}
-                placeholder="Enter a word or multiple"
-                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
-              />
-              <p className="text-xs text-muted">Use commas to separate words</p>
+            <div className="space-y-2">
+              <div>
+                <label htmlFor="campaign-keywords" className="sr-only">
+                  Keywords
+                </label>
+                <input
+                  id="campaign-keywords"
+                  value={keywordText}
+                  onChange={(e) => {
+                    setKeywordText(e.target.value);
+                    clearFieldError("keywords");
+                  }}
+                  placeholder="Enter a word or multiple"
+                  className="input"
+                  aria-invalid={Boolean(fieldErrors.keywords)}
+                  aria-describedby={
+                    fieldErrors.keywords ? "campaign-keywords-error" : "campaign-keywords-help"
+                  }
+                />
+                {fieldErrors.keywords ? (
+                  <p id="campaign-keywords-error" className="field-error">
+                    {fieldErrors.keywords}
+                  </p>
+                ) : (
+                  <p id="campaign-keywords-help" className="mt-1 text-xs text-muted">
+                    Use commas to separate words
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+                <div>
+                  <span id="whole-word-label" className="text-sm text-foreground">
+                    Whole words only
+                  </span>
+                  <p className="text-xs text-muted">
+                    Match keywords as whole words only
+                  </p>
+                </div>
+                <Toggle
+                  on={wholeWordMatch}
+                  onToggle={() => setWholeWordMatch((v) => !v)}
+                  labelledBy="whole-word-label"
+                />
+              </div>
             </div>
           )}
           <Radio
+            name="matchMode"
+            value="any"
             checked={matchMode === "any"}
-            onSelect={() => setMatchMode("any")}
+            onSelect={() => {
+              setMatchMode("any");
+              clearFieldError("keywords");
+            }}
           >
             any word
           </Radio>
           <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
-            <span className="text-sm text-foreground">
+            <span id="dm-trigger-label" className="text-sm text-foreground">
               also reply when someone DMs{" "}
               {matchMode === "any" ? "anything" : "these words"}
             </span>
             <Toggle
+              labelledBy="dm-trigger-label"
               on={dmTriggerEnabled}
               onToggle={() => setDmTriggerEnabled(!dmTriggerEnabled)}
             />
@@ -740,10 +977,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             </p>
           )}
           <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
-            <span className="text-sm text-foreground">
+            <span id="public-reply-label" className="text-sm text-foreground">
               reply to their comments under the post
             </span>
             <Toggle
+              labelledBy="public-reply-label"
               on={publicReplyEnabled}
               onToggle={() => setPublicReplyEnabled(!publicReplyEnabled)}
             />
@@ -761,7 +999,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                     }
                     placeholder="Sent you a DM! 📩"
                     maxLength={1000}
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                    className="input"
                   />
                   {publicReplyMessages.length > 1 && (
                     <button
@@ -771,7 +1009,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                           prev.filter((_, idx) => idx !== i)
                         )
                       }
-                      className="shrink-0 px-2 text-muted hover:text-error"
+                      className="btn btn-ghost btn-icon shrink-0"
                       aria-label="Remove reply"
                     >
                       ✕
@@ -796,13 +1034,14 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               </p>
             </div>
           )}
-        </Section>
+        </RadioGroup>
 
         <Section title="They will get">
           <div className="rounded-lg border border-border p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">an opening DM</span>
+              <span id="opening-dm-label" className="text-sm text-foreground">an opening DM</span>
               <Toggle
+                labelledBy="opening-dm-label"
                 on={openingDmEnabled}
                 onToggle={() => setOpeningDmEnabled(!openingDmEnabled)}
               />
@@ -811,28 +1050,42 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               <div className="mt-3 space-y-2">
                 <textarea
                   value={openingDmMessage}
-                  onChange={(e) => setOpeningDmMessage(e.target.value)}
+                  aria-label="Opening DM message"
+                  aria-invalid={Boolean(fieldErrors.openingDm)}
+                  onChange={(e) => {
+                    setOpeningDmMessage(e.target.value);
+                    clearFieldError("openingDm");
+                  }}
                   placeholder="Hey there! I'm so happy you're here 😊"
                   rows={3}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                  className="input resize-none"
                   maxLength={1000}
                 />
                 <input
                   value={openingDmButtonLabel}
-                  onChange={(e) => setOpeningDmButtonLabel(e.target.value)}
+                  onChange={(e) => {
+                    setOpeningDmButtonLabel(e.target.value);
+                    clearFieldError("openingDm");
+                  }}
                   placeholder="Send me the link"
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                  className="input"
                   maxLength={64}
+                  aria-label="Opening DM button label"
+                  aria-invalid={Boolean(fieldErrors.openingDm)}
                 />
+                {fieldErrors.openingDm && (
+                  <p className="field-error">{fieldErrors.openingDm}</p>
+                )}
               </div>
             )}
           </div>
           <div className="mt-3 rounded-lg border border-border p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">
+              <span id="require-follow-label" className="text-sm text-foreground">
                 a follow requirement first
               </span>
               <Toggle
+                labelledBy="require-follow-label"
                 on={requireFollow}
                 onToggle={() => setRequireFollow(!requireFollow)}
               />
@@ -844,14 +1097,14 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                   onChange={(e) => setFollowPromptMessage(e.target.value)}
                   placeholder="quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over"
                   rows={3}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                  className="input resize-none"
                   maxLength={1000}
                 />
                 <input
                   value={followPromptButtonLabel}
                   onChange={(e) => setFollowPromptButtonLabel(e.target.value)}
                   placeholder="i'm following"
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                  className="input"
                   maxLength={20}
                 />
                 <p className="text-xs text-muted">
@@ -866,52 +1119,85 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
 
         <Section title="And then, they will get">
           <div className="rounded-lg border border-border p-3 space-y-2">
-            <span className="text-sm text-foreground">a DM with a link</span>
+            <label htmlFor="campaign-dm" className="text-sm text-foreground">
+              a DM with a link
+            </label>
             <textarea
+              id="campaign-dm"
               value={dmMessage}
-              onChange={(e) => setDmMessage(e.target.value)}
+              onChange={(e) => {
+                setDmMessage(e.target.value);
+                clearFieldError("dmMessage");
+              }}
               placeholder="Write a message"
               rows={3}
-              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+              className="input resize-none"
               maxLength={1000}
+              aria-invalid={Boolean(fieldErrors.dmMessage)}
+              aria-describedby={fieldErrors.dmMessage ? "campaign-dm-error" : undefined}
             />
+            {fieldErrors.dmMessage && (
+              <p id="campaign-dm-error" className="field-error">
+                {fieldErrors.dmMessage}
+              </p>
+            )}
             {linkOpen ? (
               <div className="space-y-2">
                 <input
+                  type="url"
+                  inputMode="url"
                   value={trackedDestinationUrl}
-                  onChange={(e) => setTrackedDestinationUrl(e.target.value)}
+                  onChange={(e) => {
+                    setTrackedDestinationUrl(e.target.value);
+                    clearFieldError("trackedDestinationUrl");
+                  }}
                   onBlur={ensureLinkToken}
                   placeholder="https://yourlink.com/offer"
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                  className="input"
+                  aria-label="Destination URL"
+                  aria-invalid={Boolean(fieldErrors.trackedDestinationUrl)}
                 />
+                {fieldErrors.trackedDestinationUrl && (
+                  <p className="field-error">{fieldErrors.trackedDestinationUrl}</p>
+                )}
                 <input
                   value={linkButtonLabel}
                   onChange={(e) => setLinkButtonLabel(e.target.value)}
                   placeholder="Button label (e.g. Open link)"
                   maxLength={20}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                  className="input"
                 />
                 {secondLinkOpen ? (
                   <div className="space-y-2 border-t border-border pt-2">
                     <input
+                      type="url"
+                      inputMode="url"
                       value={secondaryDestinationUrl}
-                      onChange={(e) => setSecondaryDestinationUrl(e.target.value)}
+                      onChange={(e) => {
+                        setSecondaryDestinationUrl(e.target.value);
+                        clearFieldError("secondaryDestinationUrl");
+                      }}
                       placeholder="https://yourlink.com/second"
-                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                      className="input"
+                      aria-label="Second destination URL"
+                      aria-invalid={Boolean(fieldErrors.secondaryDestinationUrl)}
                     />
+                    {fieldErrors.secondaryDestinationUrl && (
+                      <p className="field-error">{fieldErrors.secondaryDestinationUrl}</p>
+                    )}
                     <input
                       value={secondaryButtonLabel}
                       onChange={(e) => setSecondaryButtonLabel(e.target.value)}
                       placeholder="Second button label"
                       maxLength={20}
-                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                      className="input"
                     />
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setSecondLinkOpen(true)}
-                    className="w-full rounded-lg border border-border py-2 text-sm text-muted hover:text-foreground"
+                    className="btn btn-secondary w-full"
                   >
                     + Add A Second Link
                   </button>
@@ -921,7 +1207,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               <button
                 type="button"
                 onClick={() => setLinkOpen(true)}
-                className="w-full rounded-lg border border-border py-2 text-sm text-muted hover:text-foreground"
+                className="btn btn-secondary w-full"
               >
                 + Add A Link
               </button>
@@ -932,10 +1218,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
           </div>
           <div className="mt-3 rounded-lg border border-border p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">
+              <span id="follow-up-label" className="text-sm text-foreground">
                 a follow-up thank-you message
               </span>
               <Toggle
+                labelledBy="follow-up-label"
                 on={followUpEnabled}
                 onToggle={() => setFollowUpEnabled(!followUpEnabled)}
               />
@@ -947,7 +1234,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                   onChange={(e) => setFollowUpMessage(e.target.value)}
                   placeholder="Btw just wanted to say thanks for following me, I appreciate the support 🙌"
                   rows={3}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                  className="input resize-none"
                   maxLength={1000}
                 />
                 <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
@@ -962,7 +1249,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                         Math.max(0, Math.min(1440, Math.floor(Number(e.target.value) || 0)))
                       )
                     }
-                    className="w-20 rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+                    className="input input-sm w-20"
                   />
                   <span className="text-xs text-muted">
                     minutes after the link

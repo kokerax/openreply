@@ -135,9 +135,13 @@ export async function GET(request: NextRequest) {
     instagramAccountId && instagramAccountId !== "all"
       ? { instagramAccountId }
       : {};
+  // `?id=` narrows the list to one campaign so the detail page doesn't have
+  // to pull every campaign in the workspace to find it.
+  const singleId = request.nextUrl.searchParams.get("id");
+  const idFilter = singleId ? { id: singleId } : {};
 
   const automations = await prisma.automation.findMany({
-    where: { workspaceId, ...accountFilter },
+    where: { workspaceId, ...accountFilter, ...idFilter },
     include: {
       instagramAccount: {
         select: { username: true, instagramId: true },

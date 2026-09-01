@@ -23,14 +23,12 @@ export default function AccountSelect({
   label = "Instagram account",
 }: AccountSelectProps) {
   return (
-    <label className="flex flex-col gap-2 text-sm">
-      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-        {label}
-      </span>
+    <label className="flex flex-col gap-1.5 text-sm">
+      <span className="field-label mb-0">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-w-52 rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-accent/40"
+        className="input min-w-52 w-auto"
       >
         {includeAll && <option value="all">All accounts</option>}
         {accounts.map((account) => (
@@ -42,4 +40,3 @@ export default function AccountSelect({
     </label>
   );
 }
-

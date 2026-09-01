@@ -112,7 +112,7 @@ export default function PostPicker({
     return (
       <div className="text-center py-8">
         <p className="text-sm text-muted">{error}</p>
-        <p className="text-xs text-zinc-500 mt-1">Connect your Instagram account first</p>
+        <p className="text-xs text-muted mt-1">Connect your Instagram account first</p>
       </div>
     );
   }
@@ -147,7 +147,7 @@ export default function PostPicker({
             setShown(PAGE_SIZE);
           }}
           placeholder="Search your posts by caption…"
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent/40 focus:outline-none"
         />
         <span className="shrink-0 text-xs text-muted">{posts.length}</span>
       </div>
@@ -158,7 +158,7 @@ export default function PostPicker({
       ) : (
         <>
           {usedPostIds && Object.keys(usedPostIds).length > 0 && (
-            <p className="flex items-center gap-1.5 px-1 text-[11px] text-muted">
+            <p className="flex items-center gap-1.5 px-1 text-xs text-muted">
               <span className="inline-block h-2.5 w-2.5 rounded-sm border border-warning/50" />
               Already used
             </p>

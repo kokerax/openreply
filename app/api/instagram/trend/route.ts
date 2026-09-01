@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
+import { prisma } from "@/lib/db/client";
 import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
 import {
   getAllUserMedia,
@@ -7,22 +8,24 @@ import {
   type InstagramMedia,
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
+import {
+  CTA_PATTERN,
+  halfYearLabel,
+  localParts,
+  median,
+  resolveTimeZone,
+} from "@/lib/reports/trend-helpers";
 
 // Paginated media + per-post insights on a full account takes a while.
 export const maxDuration = 60;
 
 const MAX_POSTS = 500;
 const INSIGHTS_CONCURRENCY = 8;
-/** Turkish call-to-action wording used in this account's captions. */
-const CTA_PATTERN = /yorumlar|takip et ve/i;
 /**
  * A bucket below this many posts is dropped: a median over two or three posts
  * moves with a single outlier and would read as a finding when it is noise.
  */
 const MIN_BUCKET = 5;
-// Publishing hour is read in Istanbul time: "what time did I post" only means
-// something in the author's own timezone, not UTC.
-const TZ_OFFSET_HOURS = 3;
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -41,13 +44,6 @@ async function mapWithConcurrency<T, R>(
     Array.from({ length: Math.min(limit, items.length) }, () => worker())
   );
   return results;
-}
-
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const s = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
 }
 
 interface Post {
@@ -108,6 +104,10 @@ export interface TrendHour {
 }
 
 export interface TrendResponse {
+  account: { id: string; username: string };
+  accounts: Array<{ id: string; username: string }>;
+  /** IANA zone the hour-of-day buckets were computed in. */
+  timeZone: string;
   totalPosts: number;
   withInsights: number;
   firstPost: string | null;
@@ -136,7 +136,7 @@ export interface TrendResponse {
   }[];
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const workspaceId = await getCurrentWorkspaceId();
   if (!workspaceId) {
     return NextResponse.json(
@@ -145,7 +145,20 @@ export async function GET() {
     );
   }
 
-  const account = await getWorkspaceInstagramAccount(workspaceId);
+  // Publishing hour only means something in the author's own zone. The page
+  // sends the browser's zone; a bare API call falls back to the default.
+  const timeZone = resolveTimeZone(request.nextUrl.searchParams.get("tz"));
+  if (!timeZone) {
+    return NextResponse.json(
+      { success: false, error: "Invalid tz — expected an IANA timezone name" },
+      { status: 400 }
+    );
+  }
+
+  const account = await getWorkspaceInstagramAccount(
+    workspaceId,
+    request.nextUrl.searchParams.get("instagramAccountId")
+  );
   if (!account) {
     return NextResponse.json(
       { success: false, error: "No Instagram account connected" },
@@ -189,8 +202,7 @@ export async function GET() {
       } catch {
         // older-than-business-account post; leave nulls
       }
-      const d = new Date(m.timestamp);
-      const local = new Date(d.getTime() + TZ_OFFSET_HOURS * 3600 * 1000);
+      const local = localParts(new Date(m.timestamp), timeZone);
       const caption = m.caption ?? null;
       return {
         id: m.id,
@@ -203,8 +215,8 @@ export async function GET() {
         views,
         saved,
         shares,
-        localHour: local.getUTCHours(),
-        half: `${local.getUTCFullYear()} ${local.getUTCMonth() < 6 ? "H1" : "H2"}`,
+        localHour: local.hour,
+        half: halfYearLabel(local),
         captionLength: caption?.length ?? 0,
         hasCta: CTA_PATTERN.test(caption ?? ""),
         gapDays: null,
@@ -387,7 +399,16 @@ export async function GET() {
 
   const sorted = [...enriched].sort((a, b) => b.engagement - a.engagement);
 
+  const accounts = await prisma.instagramAccount.findMany({
+    where: { workspaceId },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true, username: true },
+  });
+
   const body: TrendResponse = {
+    account: { id: account.id, username: account.username },
+    accounts,
+    timeZone,
     totalPosts: enriched.length,
     withInsights: enriched.filter((p) => p.views != null).length,
     firstPost: enriched.length

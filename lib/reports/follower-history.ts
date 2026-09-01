@@ -12,6 +12,11 @@ export interface FollowerHistoryPoint {
   followers: number;
   /** Net change from the previous point, when one exists. */
   delta: number | null;
+  /**
+   * True when the row was reconstructed from insight deltas rather than
+   * observed directly — the chart draws these as "estimated".
+   */
+  backfilled: boolean;
 }
 
 /** Midnight UTC for a date, so one calendar day maps to exactly one row. */
@@ -155,13 +160,14 @@ export async function getFollowerHistory(
   const rows = await prisma.followerSnapshot.findMany({
     where: { instagramAccountId, date: { gte: since } },
     orderBy: { date: "asc" },
-    select: { date: true, followersCount: true },
+    select: { date: true, followersCount: true, backfilled: true },
   });
 
   return rows.map((row, i) => ({
     date: toIsoDay(row.date),
     followers: row.followersCount,
     delta: i === 0 ? null : row.followersCount - rows[i - 1].followersCount,
+    backfilled: row.backfilled,
   }));
 }
 

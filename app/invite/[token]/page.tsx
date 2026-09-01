@@ -38,14 +38,14 @@ export default async function InvitePage({ params }: InvitePageProps) {
         <Link href="/" className="mb-8 text-sm font-bold text-cyan-100">
           OpenReply
         </Link>
-        <section className="border border-white/10 bg-white/[0.035] p-8">
+        <section className="border border-border bg-surface p-8">
           <p className="text-xs font-semibold uppercase tracking-wide text-cyan-100">
             Workspace invitation
           </p>
           <h1 className="mt-4 text-3xl font-black leading-tight text-white">
             Join {invitation.workspace.name}
           </h1>
-          <p className="mt-4 text-sm leading-6 text-zinc-400">
+          <p className="mt-4 text-sm leading-6 text-muted">
             You were invited as {invitation.role.toLowerCase()} for{" "}
             {invitation.email}.
           </p>

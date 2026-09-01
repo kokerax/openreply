@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
+import { canSendDMForWorkspace } from "@/lib/billing/usage";
 import {
   buildInvitationUrl,
   generateInvitationToken,
@@ -9,29 +10,37 @@ import {
 } from "@/lib/workspace-invitations";
 import {
   canManageWorkspace,
+  effectiveInvitationStatus,
   getCurrentWorkspaceContext,
 } from "@/lib/workspace-access";
+
+/**
+ * Workspace team listing + invitations.
+ *   GET    → members, invitations (all statuses), usage
+ *   POST   → invite by email
+ *   DELETE → revoke an invitation
+ *
+ * Per-member role change / removal live in ./[id]/route.ts.
+ */
 
 const inviteSchema = z.object({
   email: z.string().email(),
   role: z.enum(["ADMIN", "MEMBER"]).default("MEMBER"),
 });
 
-const updateMemberSchema = z.object({
-  memberId: z.string().min(1),
-  role: z.enum(["ADMIN", "MEMBER"]),
+const deleteSchema = z.object({
+  invitationId: z.string().min(1),
 });
 
-const deleteSchema = z.object({
-  memberId: z.string().min(1).optional(),
-  invitationId: z.string().min(1).optional(),
-});
+// Non-pending invitations are history; keep the list bounded.
+const INVITATION_LIMIT = 50;
 
 async function getMemberPayload(
   workspaceId: string,
-  currentUserRole?: "OWNER" | "ADMIN" | "MEMBER"
+  currentUserRole: "OWNER" | "ADMIN" | "MEMBER",
+  currentUserId: string
 ) {
-  const [members, invitations] = await Promise.all([
+  const [members, invitations, usage, workspace] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: { workspaceId },
       orderBy: [{ role: "asc" }, { createdAt: "asc" }],
@@ -49,26 +58,53 @@ async function getMemberPayload(
       },
     }),
     prisma.workspaceInvitation.findMany({
-      where: { workspaceId, status: "PENDING" },
+      where: { workspaceId },
       orderBy: { createdAt: "desc" },
+      take: INVITATION_LIMIT,
       select: {
         id: true,
         email: true,
         role: true,
         token: true,
+        status: true,
         expiresAt: true,
+        acceptedAt: true,
         createdAt: true,
       },
     }),
+    // Real counter from the usage module (also rolls the period over if the
+    // month changed), not a hardcoded "no limits" line.
+    canSendDMForWorkspace(workspaceId),
+    prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { usagePeriodStart: true, dmsSentThisPeriod: true },
+    }),
   ]);
 
+  const now = new Date();
   return {
-    ...(currentUserRole ? { currentUserRole } : {}),
+    currentUserRole,
+    currentUserId,
     members,
-    invitations: invitations.map((invitation) => ({
-      ...invitation,
-      inviteUrl: buildInvitationUrl(invitation.token),
-    })),
+    invitations: invitations.map(({ token, ...invitation }) => {
+      const status = effectiveInvitationStatus(
+        invitation.status,
+        invitation.expiresAt,
+        now
+      );
+      return {
+        ...invitation,
+        status,
+        // The link only means something while it can still be accepted.
+        inviteUrl: status === "PENDING" ? buildInvitationUrl(token) : null,
+      };
+    }),
+    usage: {
+      dmsSentThisPeriod: workspace?.dmsSentThisPeriod ?? 0,
+      periodStart: workspace?.usagePeriodStart ?? null,
+      limit: usage.limit,
+      remaining: usage.remaining,
+    },
   };
 }
 
@@ -83,9 +119,11 @@ export async function GET() {
 
   return NextResponse.json({
     success: true,
-    data: {
-      ...(await getMemberPayload(context.workspaceId, context.role)),
-    },
+    data: await getMemberPayload(
+      context.workspaceId,
+      context.role,
+      context.userId
+    ),
   });
 }
 
@@ -104,7 +142,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
   const parsed = inviteSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -158,57 +196,18 @@ export async function POST(request: NextRequest) {
         token: generateInvitationToken(),
         invitedByUserId: context.userId,
         expiresAt: getInvitationExpiry(),
+        acceptedAt: null,
       },
     });
   }
 
   return NextResponse.json({
     success: true,
-    data: await getMemberPayload(context.workspaceId, context.role),
-  });
-}
-
-export async function PATCH(request: NextRequest) {
-  const context = await getCurrentWorkspaceContext();
-  if (!context) {
-    return NextResponse.json(
-      { success: false, error: "Unauthorized" },
-      { status: 401 }
-    );
-  }
-  if (!canManageWorkspace(context.role)) {
-    return NextResponse.json(
-      { success: false, error: "Only owners and admins can update roles" },
-      { status: 403 }
-    );
-  }
-
-  const parsed = updateMemberSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json(
-      { success: false, error: "Invalid member update" },
-      { status: 400 }
-    );
-  }
-
-  const member = await prisma.workspaceMember.findFirst({
-    where: { id: parsed.data.memberId, workspaceId: context.workspaceId },
-  });
-  if (!member || member.role === "OWNER") {
-    return NextResponse.json(
-      { success: false, error: "Member cannot be updated" },
-      { status: 400 }
-    );
-  }
-
-  await prisma.workspaceMember.update({
-    where: { id: member.id },
-    data: { role: parsed.data.role },
-  });
-
-  return NextResponse.json({
-    success: true,
-    data: await getMemberPayload(context.workspaceId, context.role),
+    data: await getMemberPayload(
+      context.workspaceId,
+      context.role,
+      context.userId
+    ),
   });
 }
 
@@ -222,46 +221,40 @@ export async function DELETE(request: NextRequest) {
   }
   if (!canManageWorkspace(context.role)) {
     return NextResponse.json(
-      { success: false, error: "Only owners and admins can remove members" },
+      { success: false, error: "Only owners and admins can revoke invitations" },
       { status: 403 }
     );
   }
 
   const parsed = deleteSchema.safeParse(await request.json().catch(() => ({})));
-  if (!parsed.success || (!parsed.data.memberId && !parsed.data.invitationId)) {
+  if (!parsed.success) {
     return NextResponse.json(
-      { success: false, error: "Missing member or invitation ID" },
+      { success: false, error: "Missing invitation ID" },
       { status: 400 }
     );
   }
 
-  if (parsed.data.memberId) {
-    const member = await prisma.workspaceMember.findFirst({
-      where: { id: parsed.data.memberId, workspaceId: context.workspaceId },
-    });
-    if (!member || member.role === "OWNER" || member.userId === context.userId) {
-      return NextResponse.json(
-        { success: false, error: "Member cannot be removed" },
-        { status: 400 }
-      );
-    }
-
-    await prisma.workspaceMember.delete({ where: { id: member.id } });
-  }
-
-  if (parsed.data.invitationId) {
-    await prisma.workspaceInvitation.updateMany({
-      where: {
-        id: parsed.data.invitationId,
-        workspaceId: context.workspaceId,
-        status: "PENDING",
-      },
-      data: { status: "REVOKED" },
-    });
+  const result = await prisma.workspaceInvitation.updateMany({
+    where: {
+      id: parsed.data.invitationId,
+      workspaceId: context.workspaceId,
+      status: "PENDING",
+    },
+    data: { status: "REVOKED" },
+  });
+  if (result.count === 0) {
+    return NextResponse.json(
+      { success: false, error: "Invitation is not pending" },
+      { status: 404 }
+    );
   }
 
   return NextResponse.json({
     success: true,
-    data: await getMemberPayload(context.workspaceId, context.role),
+    data: await getMemberPayload(
+      context.workspaceId,
+      context.role,
+      context.userId
+    ),
   });
 }

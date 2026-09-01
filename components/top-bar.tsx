@@ -1,23 +1,40 @@
 "use client";
 
 /**
- * Top Bar
- *
- * Page title, mobile hamburger, and connection status.
+ * Top bar: page title, mobile menu, theme toggle, connection status.
+ * Titles resolve by longest matching prefix so nested routes get a name.
  */
 
 import { usePathname } from "next/navigation";
+import { IconMenu } from "@/components/icons";
+import { ThemeToggle } from "@/components/theme";
 
-const pageTitles: Record<string, string> = {
-  "/dashboard": "Dashboard",
-  "/campaigns": "Campaigns",
-  "/campaigns/new": "New Campaign",
-  "/automations": "Campaigns",
-  "/automations/new": "New Campaign",
-  "/logs": "DM Logs",
-  "/settings": "Settings",
-  "/diagnostics": "Diagnostics",
-};
+const pageTitles: Array<[prefix: string, title: string]> = [
+  ["/dashboard", "Dashboard"],
+  ["/overview", "Overview"],
+  ["/trend", "Trend"],
+  ["/inbox", "Inbox"],
+  ["/campaigns/new", "New Campaign"],
+  ["/campaigns/import", "Import Campaigns"],
+  ["/campaigns/", "Campaign"],
+  ["/campaigns", "Campaigns"],
+  ["/automations/new", "New Campaign"],
+  ["/automations", "Campaigns"],
+  ["/logs", "DM Logs"],
+  ["/settings", "Settings"],
+  ["/diagnostics", "Diagnostics"],
+];
+
+export function titleFor(pathname: string): string {
+  if (/^\/campaigns\/[^/]+\/edit\/?$/.test(pathname)) return "Edit Campaign";
+  let best: [string, string] | null = null;
+  for (const entry of pageTitles) {
+    const [prefix] = entry;
+    const hit = pathname === prefix || pathname.startsWith(prefix.endsWith("/") ? prefix : prefix + "/") || pathname === prefix.replace(/\/$/, "");
+    if (hit && (!best || prefix.length > best[0].length)) best = entry;
+  }
+  return best?.[1] ?? "Dashboard";
+}
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -25,20 +42,13 @@ interface TopBarProps {
   instagramAccountCount: number;
 }
 
-export default function TopBar({
-  onMenuClick,
-  instagramUsername,
-  instagramAccountCount,
-}: TopBarProps) {
+export default function TopBar({ onMenuClick, instagramUsername, instagramAccountCount }: TopBarProps) {
   const pathname = usePathname();
-  const title = pageTitles[pathname] ?? "Dashboard";
+  const title = titleFor(pathname);
 
   return (
     <header
       className="sticky top-0 z-30 flex items-center justify-between gap-3 px-4 lg:px-8 border-b border-border bg-background"
-      // Installed to the home screen the app starts at the very top of the
-      // display, so without this the title sits under the clock and battery.
-      // The inset is 0 in a browser tab and on desktop.
       style={{
         height: "calc(4rem + env(safe-area-inset-top))",
         paddingTop: "env(safe-area-inset-top)",
@@ -46,31 +56,31 @@ export default function TopBar({
     >
       <div className="flex min-w-0 items-center gap-3 sm:gap-4">
         <button
+          type="button"
           onClick={onMenuClick}
-          className="lg:hidden shrink-0 px-2.5 py-1.5 rounded border border-border text-sm text-muted hover:text-foreground"
-          aria-label="Toggle sidebar"
+          className="btn btn-secondary btn-icon lg:hidden"
+          aria-label="Open navigation"
         >
-          Menu
+          <IconMenu />
         </button>
         <h1 className="truncate text-base font-semibold sm:text-lg">{title}</h1>
       </div>
 
-      {instagramAccountCount > 0 ? (
-        <p className="shrink-0 truncate text-sm text-muted">
-          {instagramAccountCount > 1
-            ? `${instagramAccountCount} accounts`
-            : `@${instagramUsername}`}
-        </p>
-      ) : (
-        <a
-          href="/api/instagram/connect"
-          className="shrink-0 whitespace-nowrap text-sm font-medium px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover"
-        >
-          {/* Full label needs more room than a 360px header has to spare. */}
-          <span className="sm:hidden">Connect</span>
-          <span className="hidden sm:inline">Connect Instagram</span>
-        </a>
-      )}
+      <div className="flex shrink-0 items-center gap-2">
+        {instagramAccountCount > 0 ? (
+          <p className="truncate text-sm text-muted">
+            {instagramAccountCount > 1
+              ? `${instagramAccountCount} accounts`
+              : `@${instagramUsername}`}
+          </p>
+        ) : (
+          <a href="/api/instagram/connect" className="btn btn-primary">
+            <span className="sm:hidden">Connect</span>
+            <span className="hidden sm:inline">Connect Instagram</span>
+          </a>
+        )}
+        <ThemeToggle />
+      </div>
     </header>
   );
 }

@@ -10,8 +10,10 @@
  * surfaced verbatim when it applies.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
+import { IconRefresh, IconSearch } from "@/components/icons";
+import { useToast } from "@/components/toast";
 import { readCache, writeCache } from "@/lib/client-cache";
 import type { ConversationListItem } from "@/app/api/instagram/conversations/route";
 import type { ThreadMessage } from "@/app/api/instagram/conversations/[id]/route";
@@ -35,7 +37,20 @@ function formatTime(iso: string | null): string {
     : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** Client-side filter on participant username and last message text. */
+function matchesConversation(
+  c: ConversationListItem,
+  query: string
+): boolean {
+  const q = query.trim().toLocaleLowerCase();
+  if (!q) return true;
+  const username = (c.contact.username ?? "").toLocaleLowerCase();
+  const text = (c.lastMessage?.text ?? "").toLocaleLowerCase();
+  return username.includes(q) || text.includes(q);
+}
+
 export default function InboxPage() {
+  const toast = useToast();
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   // Seed from the last-used account so a revisit can paint the cached
   // conversation list immediately, before the account list even loads.
@@ -47,6 +62,7 @@ export default function InboxPage() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [convLoading, setConvLoading] = useState(true);
   const [convError, setConvError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
@@ -59,6 +75,10 @@ export default function InboxPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
+  const visible = useMemo(
+    () => conversations.filter((c) => matchesConversation(c, query)),
+    [conversations, query]
+  );
 
   // Accounts for the selector; default to the first connected account. Uses the
   // lightweight accounts endpoint (one query) rather than the heavy dashboard
@@ -67,9 +87,18 @@ export default function InboxPage() {
     fetch("/api/instagram/accounts")
       .then((r) => r.json())
       .then((payload) => {
-        if (!payload.success) return;
+        if (!payload.success) {
+          setConvError(payload.error ?? "Could not load Instagram accounts");
+          setConvLoading(false);
+          return;
+        }
         const next: AccountOption[] = payload.data.instagramAccounts ?? [];
         setAccounts(next);
+        if (next.length === 0) {
+          setConvError("No Instagram account connected");
+          setConvLoading(false);
+          return;
+        }
         setSelectedAccountId((prev) => {
           // Keep the seeded account only if it's still connected; otherwise
           // fall back to the default so a removed account can't wedge the inbox.
@@ -79,7 +108,11 @@ export default function InboxPage() {
             : payload.data.selectedInstagramAccountId || next[0]?.id || "";
         });
       })
-      .catch(() => setAccounts([]));
+      .catch(() => {
+        setAccounts([]);
+        setConvError("Could not load Instagram accounts");
+        setConvLoading(false);
+      });
   }, []);
 
   // Remember the chosen account for the next visit.
@@ -103,14 +136,21 @@ export default function InboxPage() {
           writeCache(convCacheKey(selectedAccountId), data.data.conversations);
           setConvError(null);
         } else if (!silent) {
-          setConvError(data.error ?? "Failed to load conversations");
+          const message = data.error ?? "Failed to load conversations";
+          setConvError(message);
+          toast.error(message);
         }
       } catch {
-        if (!silent) setConvError("Failed to load conversations");
+        if (!silent) {
+          setConvError("Failed to load conversations");
+          toast.error("Failed to load conversations");
+        }
       } finally {
         if (!silent) setConvLoading(false);
       }
     },
+    // toast is stable (memoized in the provider)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [selectedAccountId]
   );
 
@@ -152,13 +192,18 @@ export default function InboxPage() {
         if (data.success) {
           setMessages(data.data.messages);
           writeCache(msgCacheKey(conversationId), data.data.messages);
+        } else if (!silent) {
+          toast.error(data.error ?? "Failed to load messages");
         }
       } catch {
-        // keep whatever is shown
+        // Background polls keep whatever is shown; a first load reports it.
+        if (!silent) toast.error("Failed to load messages");
       } finally {
         if (!silent) setThreadLoading(false);
       }
     },
+    // toast is stable (memoized in the provider)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [selectedAccountId]
   );
 
@@ -232,18 +277,22 @@ export default function InboxPage() {
       });
       const data = await res.json();
       if (data.success) {
+        toast.success("Reply sent");
         await loadMessages(active.id, true);
         void loadConversations(true);
       } else {
         // Roll the optimistic message back and restore the draft so it's not lost.
+        const message = data.error ?? "Failed to send message";
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
         setDraft(text);
-        setSendError(data.error ?? "Failed to send message");
+        setSendError(message);
+        toast.error(message);
       }
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setDraft(text);
       setSendError("Failed to send message");
+      toast.error("Failed to send message");
     } finally {
       setSending(false);
     }
@@ -270,7 +319,7 @@ export default function InboxPage() {
         )}
       </div>
 
-      <div className="grid h-[calc(100dvh-11rem)] grid-cols-1 overflow-hidden rounded border border-border sm:grid-cols-[300px_1fr]">
+      <div className="grid h-[calc(100dvh-11rem)] grid-cols-1 overflow-hidden rounded-md border border-border bg-background sm:grid-cols-[300px_1fr]">
         {/* Conversation list. On mobile it takes the full pane and is hidden
             once a thread is open (ManyChat-style); on sm+ it is always shown. */}
         <div
@@ -278,25 +327,84 @@ export default function InboxPage() {
             active ? "hidden" : "flex"
           }`}
         >
-          <div className="shrink-0 border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
-            Conversations
+          <div className="shrink-0 space-y-2 border-b border-border px-3 py-3">
+            <p className="px-1 text-sm font-semibold text-foreground">
+              Conversations
+            </p>
+            <label className="relative block">
+              <span className="sr-only">Search conversations</span>
+              <IconSearch
+                size={14}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by name or message"
+                className="input input-sm pl-8"
+              />
+            </label>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {convLoading ? (
-              <p className="px-4 py-6 text-sm text-muted">Loading…</p>
+              <div className="space-y-3 p-4" aria-busy="true">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i}>
+                    <div className="h-3.5 w-28 rounded bg-surface-hover" />
+                    <div className="mt-2 h-3 w-48 rounded bg-surface-hover" />
+                  </div>
+                ))}
+              </div>
             ) : convError ? (
-              <p className="px-4 py-6 text-sm text-error">{convError}</p>
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm text-error">{convError}</p>
+                {convError.includes("No Instagram account") ? (
+                  <a href="/api/instagram/connect" className="btn btn-primary btn-sm mt-3">
+                    Connect Instagram
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void loadConversations(false)}
+                    className="btn btn-secondary btn-sm mt-3"
+                  >
+                    <IconRefresh size={14} />
+                    Retry
+                  </button>
+                )}
+              </div>
             ) : conversations.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-muted">No conversations yet.</p>
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm text-foreground">No conversations yet.</p>
+                <p className="mt-1 text-xs text-muted">
+                  DMs sent by your campaigns and replies from followers will
+                  appear here.
+                </p>
+              </div>
+            ) : visible.length === 0 ? (
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm text-foreground">
+                  No matches for &ldquo;{query.trim()}&rdquo;
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="btn btn-secondary btn-sm mt-3"
+                >
+                  Clear search
+                </button>
+              </div>
             ) : (
-              conversations.map((c) => {
+              visible.map((c) => {
                 const isActive = c.id === activeId;
                 return (
                   <button
                     key={c.id}
                     type="button"
                     onClick={() => openConversation(c.id)}
-                    className={`block w-full border-b border-border px-4 py-3 text-left ${
+                    aria-current={isActive ? "true" : undefined}
+                    className={`block w-full border-b border-border px-4 py-3 text-left transition-colors ${
                       isActive ? "bg-surface-hover" : "hover:bg-surface-hover"
                     }`}
                   >
@@ -304,7 +412,7 @@ export default function InboxPage() {
                       <span className="truncate text-sm font-medium text-foreground">
                         @{c.contact.username ?? "unknown"}
                       </span>
-                      <span className="shrink-0 text-[11px] text-zinc-500">
+                      <span className="shrink-0 text-xs text-muted">
                         {formatTime(c.updatedTime)}
                       </span>
                     </div>
@@ -336,7 +444,7 @@ export default function InboxPage() {
                 <button
                   type="button"
                   onClick={() => setActiveId(null)}
-                  className="-ml-1 rounded px-2 py-1 text-muted hover:text-foreground sm:hidden"
+                  className="btn btn-ghost btn-sm -ml-1 sm:hidden"
                   aria-label="Back to conversations"
                 >
                   Back
@@ -348,7 +456,11 @@ export default function InboxPage() {
 
               <div ref={scrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
                 {threadLoading && messages.length === 0 ? (
-                  <p className="text-sm text-muted">Loading…</p>
+                  <div className="space-y-3" aria-busy="true">
+                    <div className="h-10 w-2/3 rounded-md bg-surface-hover" />
+                    <div className="ml-auto h-10 w-1/2 rounded-md bg-surface-hover" />
+                    <div className="h-10 w-1/2 rounded-md bg-surface-hover" />
+                  </div>
                 ) : messages.length === 0 ? (
                   <p className="text-sm text-muted">No messages.</p>
                 ) : (
@@ -358,16 +470,16 @@ export default function InboxPage() {
                       className={`flex ${m.fromMe ? "justify-end" : "justify-start"}`}
                     >
                       <div
-                        className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                        className={`max-w-[75%] rounded-md px-3 py-2 text-sm ${
                           m.fromMe
                             ? "bg-accent text-white"
-                            : "bg-surface text-foreground border border-border"
+                            : "border border-border bg-surface text-foreground"
                         }`}
                       >
                         <p className="whitespace-pre-wrap break-words">{m.text}</p>
                         <p
-                          className={`mt-1 text-[10px] ${
-                            m.fromMe ? "text-white/70" : "text-zinc-500"
+                          className={`mt-1 text-xs ${
+                            m.fromMe ? "text-white/80" : "text-muted"
                           }`}
                         >
                           {formatTime(m.createdTime)}
@@ -380,22 +492,26 @@ export default function InboxPage() {
 
               <div className="shrink-0 border-t border-border p-3">
                 {sendError && (
-                  <p className="mb-2 text-xs text-error">{sendError}</p>
+                  <p className="field-error mb-2 mt-0">{sendError}</p>
                 )}
                 <div className="flex items-end gap-2">
+                  <label className="sr-only" htmlFor="inbox-reply">
+                    Reply
+                  </label>
                   <textarea
+                    id="inbox-reply"
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={handleKeyDown}
                     rows={1}
                     placeholder="Write a reply…  (Enter to send, Shift+Enter for a new line)"
-                    className="max-h-32 min-h-[40px] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                    className="input max-h-32 min-h-[40px] flex-1 resize-none"
                   />
                   <button
                     type="button"
                     onClick={() => void handleSend()}
                     disabled={sending || !draft.trim()}
-                    className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                    className="btn btn-primary"
                   >
                     {sending ? "Sending…" : "Send"}
                   </button>
