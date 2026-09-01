@@ -88,6 +88,8 @@ export async function GET(request: NextRequest) {
     prisma.dmLog.count({
       where: {
         workspaceId,
+        // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
+        isBackfill: false,
         status: "SENT",
         createdAt: { gte: todayStart },
         ...accountFilter,
@@ -96,6 +98,8 @@ export async function GET(request: NextRequest) {
     prisma.dmLog.count({
       where: {
         workspaceId,
+        // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
+        isBackfill: false,
         status: "SENT",
         createdAt: { gte: weekStart },
         ...accountFilter,
@@ -104,17 +108,23 @@ export async function GET(request: NextRequest) {
     prisma.dmLog.count({
       where: {
         workspaceId,
+        // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
+        isBackfill: false,
         status: "SENT",
         createdAt: { gte: monthStart },
         ...accountFilter,
       },
     }),
     prisma.dmLog.count({
-      where: { workspaceId, status: "SENT", ...accountFilter },
+      where: { workspaceId,
+        // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
+        isBackfill: false, status: "SENT", ...accountFilter },
     }),
     prisma.dmLog.groupBy({
       by: ["status"],
-      where: { workspaceId, createdAt: { gte: monthStart }, ...accountFilter },
+      where: { workspaceId,
+        // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
+        isBackfill: false, createdAt: { gte: monthStart }, ...accountFilter },
       _count: { _all: true },
     }),
     prisma.linkClick.count({
@@ -123,11 +133,14 @@ export async function GET(request: NextRequest) {
     prisma.linkClick.count({ where: { workspaceId, ...accountFilter } }),
     prisma.dmLog.groupBy({
       by: ["matchedKeyword"],
-      where: { workspaceId, matchedKeyword: { not: null }, ...accountFilter },
+      where: { workspaceId,
+        // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
+        isBackfill: false, matchedKeyword: { not: null }, ...accountFilter },
       _count: { _all: true },
     }),
     prisma.dmLog.findMany({
-      where: { workspaceId, ...accountFilter },
+      // Muhurler "son aktivite"de gercek gonderim gibi gorunurdu.
+      where: { workspaceId, isBackfill: false, ...accountFilter },
       orderBy: { createdAt: "desc" },
       take: 10,
       include: {
@@ -143,7 +156,8 @@ export async function GET(request: NextRequest) {
       : Promise.resolve(null),
     // Distinct people who have interacted, counted as "contacts".
     prisma.dmLog.findMany({
-      where: { workspaceId, ...accountFilter },
+      // Ulasilan benzersiz kisi: muhurlenenlere bu sistem mesaj gondermedi.
+      where: { workspaceId, isBackfill: false, ...accountFilter },
       distinct: ["commenterId"],
       select: { commenterId: true },
     }),
@@ -159,6 +173,8 @@ export async function GET(request: NextRequest) {
     const count = await prisma.dmLog.count({
       where: {
         workspaceId,
+        // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
+        isBackfill: false,
         status: "SENT",
         createdAt: { gte: dayStart, lt: dayEnd },
         ...accountFilter,

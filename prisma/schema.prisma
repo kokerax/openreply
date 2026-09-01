@@ -218,6 +218,13 @@ model Automation {
 }
 
 model DmLog {
+  /// Gocte "zaten islenmis" diye muhurlenen kayit — bu sistem GONDERMEDI.
+  /// Tekrar gonderimi engellemek icin status SENT kalir (yoklayici ona bakar),
+  /// ama istatistiklere GIRMEZ: panel 348 sahte gonderim gosteriyordu.
+  /// Metin eslestirmesi yerine acik alan: errorMessage bir gun degisirse
+  /// sessizce bozulacak bir filtreye guvenmek istemiyoruz.
+  isBackfill Boolean @default(false)
+
   id                 String     @id @default(cuid())
   workspaceId        String
   automationId       String

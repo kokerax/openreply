@@ -73,7 +73,9 @@ export async function getCampaignReportBySlug(shareSlug: string) {
       prisma.dmLog.groupBy({
         by: ["status"],
         where: {
-          workspaceId: automation.workspaceId,
+          // Goc muhurleri bu sistemin gonderimi DEGIL.
+      isBackfill: false,
+      workspaceId: automation.workspaceId,
           automationId: automation.id,
         },
         _count: { _all: true },
@@ -87,7 +89,9 @@ export async function getCampaignReportBySlug(shareSlug: string) {
       prisma.dmLog.groupBy({
         by: ["matchedKeyword"],
         where: {
-          workspaceId: automation.workspaceId,
+          // Goc muhurleri bu sistemin gonderimi DEGIL.
+      isBackfill: false,
+      workspaceId: automation.workspaceId,
           automationId: automation.id,
           matchedKeyword: { not: null },
         },
@@ -97,6 +101,9 @@ export async function getCampaignReportBySlug(shareSlug: string) {
         where: {
           workspaceId: automation.workspaceId,
           automationId: automation.id,
+          // "Son gonderim" muhur kaydini gostermemeli: dmSentAt muhurleme
+          // aninda dolduruldu, yani gercek bir gonderim gibi gorunuyor.
+          isBackfill: false,
           status: "SENT",
         },
         orderBy: { dmSentAt: "desc" },
@@ -123,7 +130,9 @@ export async function getCampaignReportBySlug(shareSlug: string) {
       const [sent, clicks] = await Promise.all([
         prisma.dmLog.count({
           where: {
-            workspaceId: automation.workspaceId,
+            // Goc muhurleri bu sistemin gonderimi DEGIL.
+      isBackfill: false,
+      workspaceId: automation.workspaceId,
             automationId: automation.id,
             status: "SENT",
             createdAt: { gte: start, lt: end },
