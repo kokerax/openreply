@@ -377,6 +377,8 @@ export default function CampaignDetailPage() {
           )}
         </div>
 
+        <CollectedEmailsCard campaignId={campaign.id} />
+
         <Summary title="When someone comments on">
           <div className="flex items-center gap-3">
             {postThumb ? (
@@ -838,6 +840,118 @@ function BreakdownTable({
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------- collected emails ---------------------------- */
+
+interface LeadPreview {
+  id: string;
+  email: string;
+  username: string | null;
+  createdAt: string;
+}
+
+/** How far back the card counts. The API caps a range at 366 days, so this is
+ *  "the last year", not "all time" — the heading says so rather than implying
+ *  a lifetime total. */
+const LEAD_CARD_DAYS = 365;
+
+function CollectedEmailsCard({ campaignId }: { campaignId: string }) {
+  const toast = useToast();
+  const [leads, setLeads] = useState<LeadPreview[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const from = new Date(Date.now() - (LEAD_CARD_DAYS - 1) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    try {
+      const data = await apiCall<{
+        leads: LeadPreview[];
+        pagination: { total: number };
+      }>(
+        `/api/leads?automationId=${encodeURIComponent(campaignId)}&from=${from}&limit=5`,
+        { cache: "no-store" }
+      );
+      setLeads(data.leads);
+      setTotal(data.pagination.total);
+    } catch (err) {
+      const message = errorMessage(err, "Failed to load collected emails");
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [campaignId, toast]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  return (
+    <div className="panel space-y-3 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-foreground">Collected emails</h2>
+          <p className="text-xs text-muted">Last 12 months</p>
+        </div>
+        {!loading && !error && (
+          <p className="text-lg font-semibold tabular-nums text-foreground">{total}</p>
+        )}
+      </div>
+
+      {loading && <div className="h-16 animate-pulse rounded bg-surface-hover" />}
+
+      {!loading && error && (
+        <div>
+          <p className="text-xs text-error">{error}</p>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm mt-2"
+            onClick={() => void load()}
+          >
+            <IconRefresh size={14} />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && total === 0 && (
+        <p className="text-xs text-muted">
+          No emails yet. Turn on <span className="text-foreground">Email gate</span> when
+          editing this campaign to ask for an email before the link goes out.
+        </p>
+      )}
+
+      {!loading && !error && leads.length > 0 && (
+        <>
+          <ul className="space-y-1">
+            {leads.map((lead) => (
+              <li key={lead.id} className="flex items-baseline justify-between gap-2">
+                <span className="truncate text-sm text-foreground" title={lead.email}>
+                  {lead.email}
+                </span>
+                <span className="shrink-0 text-xs text-muted">
+                  {lead.username ? `@${lead.username}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Link
+            href={`/leads?automationId=${encodeURIComponent(campaignId)}`}
+            className="btn btn-secondary btn-sm w-full"
+          >
+            View all emails
+          </Link>
+        </>
       )}
     </div>
   );

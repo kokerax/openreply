@@ -15,7 +15,7 @@
  ],
  "matchAnyWord": false,
  "dmTriggerEnabled": true,
- "dmMessage": "🎮 İşte GTA VI görselinin prompt'u, aşağıdaki butondan ulaşabilirsin:\nhttps://www.yapayzekakademisi.com/",
+ "dmMessage": "🎮 İşte GTA VI görselinin prompt'u — aşağıdaki butondan aç:",
  "openingDmEnabled": true,
  "openingDmMessage": "🎮 Merhaba, yorumun için teşekkürler!\nGTA VI görselinin prompt'u takipçilerime özel, almak için aşağıdaki butona tıkla",
  "openingDmButtonLabel": "PROMPTU YOLLA",
@@ -31,10 +31,14 @@
  "publicReplyMessages": [],
  "isActive": true,
  "wholeWordMatch": false,
+ "emailGateEnabled": true,
+ "emailPromptMessage": "🎮 Merhaba {username}! GTA VI görselinin prompt'unu sana yollayayım.\n\nTek yapman gereken e-posta adresini bu sohbete yazmak 👇",
+ "emailInvalidMessage": "Bunu e-posta adresi olarak okuyamadım 🤔\nornek@gmail.com şeklinde yazar mısın?",
+ "emailThanksMessage": "Aldım, teşekkürler! 🙌 Prompt aşağıdaki butonda 👇",
  "reportShareSlug": "CYG1nGWKeMjp",
  "reportShareEnabled": false,
  "createdAt": "2026-09-02T13:47:40.790Z",
- "updatedAt": "2026-09-02T13:47:40.790Z",
+ "updatedAt": "2026-09-02T14:24:11.633Z",
  "trackedLinks": [
   {
    "id": "cmtk5i18c0001q4dtc2cheruc",
@@ -42,9 +46,9 @@
    "automationId": "cmtk5i16e0000q4dttxq6icz4",
    "slug": "gta-4506ce",
    "label": "PROMPTA GİT",
-   "destinationUrl": "https://www.yapayzekakademisi.com/",
+   "destinationUrl": "https://www.yapayzekakademisi.com/promptlar/#gta",
    "createdAt": "2026-09-02T13:47:40.790Z",
-   "updatedAt": "2026-09-02T13:47:40.790Z"
+   "updatedAt": "2026-09-02T14:24:11.633Z"
   }
  ],
  "instagramAccount": {

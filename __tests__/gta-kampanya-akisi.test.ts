@@ -13,6 +13,7 @@ const {
   mockPrisma: {
     automation: { findMany: vi.fn(), findFirst: vi.fn() },
     dmLog: { findUnique: vi.fn(), findFirst: vi.fn(), upsert: vi.fn(), update: vi.fn(), create: vi.fn() },
+    lead: { findUnique: vi.fn(), upsert: vi.fn() },
     instagramAccount: { findUnique: vi.fn() },
     operationalEvent: { create: vi.fn() },
   },
@@ -36,6 +37,7 @@ import { processJob } from "../lib/queue/dm-worker";
 
 const IG = gta.instagramAccount.instagramId;
 const yorum = (text: string) => ({ id: "j1", attemptsMade: 0, data: { instagramAccountId: IG, commentId: "c_gta_1", commentText: text, commenterId: "u_777", commenterName: "ali_test", mediaId: "media_foto_1" } });
+const mesaj = (text: string) => ({ name: "process-message", id: "m1", attemptsMade: 0, data: { instagramAccountId: IG, messageId: "msg_gta_1", messageText: text, senderId: "u_777" } });
 const postback = () => ({ name: "process-postback", id: "p1", attemptsMade: 0, data: { instagramAccountId: IG, userId: "u_777", payload: `followcheck:${gta.id}` } });
 
 beforeEach(() => {
@@ -45,6 +47,7 @@ beforeEach(() => {
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
   mockPrisma.dmLog.findFirst.mockImplementation(async (a: { where?: { status?: string } } = {}) => (a.where?.status === "SENT" ? null : { commenterName: "ali_test" }));
   mockPrisma.dmLog.create.mockResolvedValue({}); mockPrisma.dmLog.upsert.mockResolvedValue({}); mockPrisma.dmLog.update.mockResolvedValue({});
+  mockPrisma.lead.findUnique.mockResolvedValue(null); mockPrisma.lead.upsert.mockResolvedValue({});
   mockPrisma.instagramAccount.findUnique.mockResolvedValue({ workspaceId: gta.workspaceId });
   mockPrisma.operationalEvent.create.mockResolvedValue({});
   for (const f of [sendPrivateReply, sendPrivateReplyWithLinkButton, sendPrivateReplyWithButton, sendDirectMessageWithButton, sendDirectMessageWithLinkButton, sendDirectMessage]) f.mockResolvedValue({ recipient_id: "u_777", message_id: "m1" });
@@ -52,16 +55,37 @@ beforeEach(() => {
 });
 
 describe("GTA VI Prompt kampanyasi — uctan uca (gercek kayit, gercek eslestirici)", () => {
-  it("'GTA yaz' yorumu → acilis DM'i PROMPTU YOLLA butonuyla, takip kontroluna yonlendirir", async () => {
+  it("'GTA yaz' yorumu → once E-POSTA istenir (link/acilis DM'i GITMEZ)", async () => {
     await processJob(yorum("GTA yaz") as never);
-    expect(sendPrivateReplyWithButton).toHaveBeenCalledTimes(1);
-    const [, ig, cid, msg, btn, payload] = sendPrivateReplyWithButton.mock.calls[0];
-    expect(ig).toBe(IG); expect(cid).toBe("c_gta_1");
-    expect(msg).toContain("GTA VI görselinin prompt'u"); expect(btn).toBe("PROMPTU YOLLA"); expect(payload).toBe(`followcheck:${gta.id}`);
+    expect(sendPrivateReply).toHaveBeenCalledTimes(1);
+    expect(sendPrivateReply.mock.calls[0][3]).toContain("e-posta adresini");
+    expect(sendPrivateReplyWithButton).not.toHaveBeenCalled();
     expect(sendPrivateReplyWithLinkButton).not.toHaveBeenCalled();
+    const kapi = mockPrisma.dmLog.upsert.mock.calls.find((c: any[]) => String(c[0].create?.commentId).startsWith("emailgate:"));
+    expect(kapi, "bekleme kaydi yazilmali").toBeTruthy();
   });
-  it("buton dokunusu + takipci → linkli DM, PROMPTA GİT butonu /r/gta-… izlenen linke gider", async () => {
+
+  it("kisi adresini yazinca Lead kaydedilir ve GERCEK prompt linki gider", async () => {
+    mockPrisma.dmLog.findUnique.mockImplementation(async (a: any) =>
+      String(a?.where?.automationId_commentId?.commentId).startsWith("emailgate:")
+        ? { id: "gate1", commenterName: "ali_test", attempts: 0, status: "PENDING" }
+        : null);
     getUserFollowStatus.mockResolvedValue(true);
+    await processJob(mesaj("ali@example.com") as never);
+    expect(mockPrisma.lead.upsert).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.lead.upsert.mock.calls[0][0].create.email).toBe("ali@example.com");
+    const linkCalls = [...sendDirectMessageWithLinkButton.mock.calls, ...sendPrivateReplyWithLinkButton.mock.calls];
+    expect(linkCalls.length).toBe(1);
+    const buttons = linkCalls[0][linkCalls[0].length - 1] as Array<{ title: string; url: string }>;
+    expect(buttons[0].title).toBe("PROMPTA GİT");
+    expect(buttons[0].url).toMatch(new RegExp(`/r/${gta.trackedLinks[0].slug}$`));
+    // Izlenen link GERCEK hedefe gitmeli (canli /r/<slug> yonlendirmesi).
+    expect(gta.trackedLinks[0].destinationUrl).toBe("https://www.yapayzekakademisi.com/promptlar/#gta");
+  });
+
+  it("adresini vermis kisinin buton dokunusu + takipci → linkli DM, PROMPTA GİT butonu /r/gta-… izlenen linke gider", async () => {
+    getUserFollowStatus.mockResolvedValue(true);
+    mockPrisma.lead.findUnique.mockResolvedValue({ id: "lead1" });
     await processJob(postback() as never);
     const linkCalls = [...sendDirectMessageWithLinkButton.mock.calls, ...sendPrivateReplyWithLinkButton.mock.calls];
     expect(linkCalls.length).toBe(1);

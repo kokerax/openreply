@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
@@ -101,6 +102,10 @@ interface LoadedCampaign {
   publicReplyEnabled: boolean;
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
+  emailGateEnabled?: boolean;
+  emailPromptMessage?: string | null;
+  emailInvalidMessage?: string | null;
+  emailThanksMessage?: string | null;
   isActive: boolean;
   instagramAccountId: string;
   trackedLinks?: { destinationUrl: string; label?: string | null }[];
@@ -267,6 +272,10 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpMessage, setFollowUpMessage] = useState("");
   const [followUpDelayMinutes, setFollowUpDelayMinutes] = useState(0);
+  const [emailGateEnabled, setEmailGateEnabled] = useState(false);
+  const [emailPromptMessage, setEmailPromptMessage] = useState("");
+  const [emailInvalidMessage, setEmailInvalidMessage] = useState("");
+  const [emailThanksMessage, setEmailThanksMessage] = useState("");
 
   const [previewTab, setPreviewTab] = useState<PreviewTab>("dm");
 
@@ -377,6 +386,10 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         setFollowUpEnabled(c.followUpEnabled ?? false);
         setFollowUpMessage(c.followUpMessage ?? "");
         setFollowUpDelayMinutes(c.followUpDelayMinutes ?? 0);
+        setEmailGateEnabled(c.emailGateEnabled ?? false);
+        setEmailPromptMessage(c.emailPromptMessage ?? "");
+        setEmailInvalidMessage(c.emailInvalidMessage ?? "");
+        setEmailThanksMessage(c.emailThanksMessage ?? "");
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -554,6 +567,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       followUpEnabled,
       followUpMessage: followUpEnabled ? followUpMessage.trim() : "",
       followUpDelayMinutes: followUpEnabled ? followUpDelayMinutes : 0,
+      emailGateEnabled,
+      // Empty string means "use the built-in wording"; the API stores null.
+      emailPromptMessage: emailGateEnabled ? emailPromptMessage.trim() : "",
+      emailInvalidMessage: emailGateEnabled ? emailInvalidMessage.trim() : "",
+      emailThanksMessage: emailGateEnabled ? emailThanksMessage.trim() : "",
       isActive: activeValue,
     };
 
@@ -1262,6 +1280,77 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                   {" {username}"} personalizes it. Max 24 hours, to stay inside
                   Instagram&apos;s messaging window.
                 </p>
+              </div>
+            )}
+          </div>
+
+          {/* Email gate: ask for an email before the link goes out. */}
+          <div className="mt-3 rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span id="email-gate-label" className="text-sm text-foreground">
+                Email gate — ask for an email first
+              </span>
+              <Toggle
+                labelledBy="email-gate-label"
+                on={emailGateEnabled}
+                onToggle={() => setEmailGateEnabled(!emailGateEnabled)}
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              When this is on, the link is held back until they reply with an email
+              address. Every address lands on the{" "}
+              <Link href="/leads" className="text-accent hover:underline">
+                Leads
+              </Link>{" "}
+              page. Leave a box empty to use the built-in wording. Write in any
+              language — Turkish characters (ç, ğ, ı, İ, ö, ş, ü) are stored and sent
+              exactly as you type them.
+            </p>
+            {emailGateEnabled && (
+              <div className="mt-3 space-y-3">
+                <label className="block">
+                  <span className="field-label">Ask for the email</span>
+                  <textarea
+                    value={emailPromptMessage}
+                    onChange={(e) => setEmailPromptMessage(e.target.value)}
+                    placeholder="Son bir adım! Bağlantıyı göndermem için e-posta adresini yazar mısın?"
+                    rows={3}
+                    className="input resize-none"
+                    maxLength={1000}
+                  />
+                  <span className="mt-1 block text-xs text-muted">
+                    Sent instead of the link. {"{username}"} personalizes it.
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="field-label">When the reply is not an email</span>
+                  <textarea
+                    value={emailInvalidMessage}
+                    onChange={(e) => setEmailInvalidMessage(e.target.value)}
+                    placeholder="Bunu bir e-posta adresi olarak okuyamadım — ornek@site.com gibi yazabilir misin?"
+                    rows={3}
+                    className="input resize-none"
+                    maxLength={1000}
+                  />
+                  <span className="mt-1 block text-xs text-muted">
+                    Sent when what they wrote does not parse as an address; they can
+                    try again.
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="field-label">Thank-you before the link</span>
+                  <textarea
+                    value={emailThanksMessage}
+                    onChange={(e) => setEmailThanksMessage(e.target.value)}
+                    placeholder="Teşekkürler! Bağlantın hemen geliyor 👇"
+                    rows={3}
+                    className="input resize-none"
+                    maxLength={1000}
+                  />
+                  <span className="mt-1 block text-xs text-muted">
+                    Sent right after a valid address is saved, just before the link.
+                  </span>
+                </label>
               </div>
             )}
           </div>

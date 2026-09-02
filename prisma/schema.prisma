@@ -80,6 +80,7 @@ model Workspace {
   instagramAccounts InstagramAccount[]
   automations       Automation[]
   dmLogs            DmLog[]
+  leads             Lead[]
   trackedLinks      TrackedLink[]
   linkClicks        LinkClick[]
   webhookEvents     WebhookEvent[]
@@ -139,6 +140,7 @@ model InstagramAccount {
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   automations Automation[]
   dmLogs      DmLog[]
+  leads       Lead[]
   linkClicks  LinkClick[]
   followerSnapshots FollowerSnapshot[]
 
@@ -200,6 +202,13 @@ model Automation {
   publicReplyMessages String[] @default([])
   isActive       Boolean @default(true)
   wholeWordMatch Boolean @default(true)
+
+  /// E-posta kapisi: link gonderilmeden ONCE kisiden e-posta adresi istenir.
+  /// Kisi DM'e adresini yazinca Lead kaydi olusur ve link o zaman gider.
+  emailGateEnabled Boolean @default(false)
+  emailPromptMessage String?
+  emailInvalidMessage String?
+  emailThanksMessage String?
   reportShareSlug    String? @unique
   reportShareEnabled Boolean @default(true)
 
@@ -209,12 +218,41 @@ model Automation {
   workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
   dmLogs           DmLog[]
+  leads            Lead[]
   trackedLinks     TrackedLink[]
   linkClicks       LinkClick[]
 
   @@index([workspaceId])
   @@index([instagramAccountId])
   @@index([postId])
+}
+
+/// E-posta kapisindan toplanan adresler. Kisi basina kampanya basina TEK kayit;
+/// ayni kisi tekrar yazarsa adres guncellenir, mukerrer satir olusmaz.
+model Lead {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  automationId       String
+  instagramAccountId String
+
+  igsid    String
+  username String?
+  email    String
+  /// Adresin geldigi ham mesaj — yanlis ayristirma sikayetinde kanit.
+  sourceText String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automation       Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, igsid])
+  @@index([workspaceId])
+  @@index([automationId])
+  @@index([email])
+  @@index([createdAt])
 }
 
 model DmLog {

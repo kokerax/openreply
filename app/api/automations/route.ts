@@ -58,6 +58,12 @@ const createAutomationSchema = z
       .optional()
       .nullable(),
     secondaryButtonLabel: z.string().max(20).optional().nullable(),
+    // Email gate: hold the link back until they reply with an email address.
+    // Empty string / null on any message means "use the built-in wording".
+    emailGateEnabled: z.boolean().optional().default(false),
+    emailPromptMessage: z.string().max(1000).optional().nullable(),
+    emailInvalidMessage: z.string().max(1000).optional().nullable(),
+    emailThanksMessage: z.string().max(1000).optional().nullable(),
     isActive: z.boolean().optional().default(true),
     wholeWordMatch: z.boolean().optional().default(true),
   })
@@ -104,6 +110,10 @@ const updateAutomationSchema = z.object({
   publicReplyEnabled: z.boolean().optional(),
   publicReplyMessage: z.string().max(1000).optional().nullable(),
   publicReplyMessages: z.array(z.string().max(1000)).max(10).optional(),
+  emailGateEnabled: z.boolean().optional(),
+  emailPromptMessage: z.string().max(1000).optional().nullable(),
+  emailInvalidMessage: z.string().max(1000).optional().nullable(),
+  emailThanksMessage: z.string().max(1000).optional().nullable(),
   isActive: z.boolean().optional(),
   wholeWordMatch: z.boolean().optional(),
   reportShareEnabled: z.boolean().optional(),
@@ -430,6 +440,16 @@ export async function POST(request: NextRequest) {
       publicReplyMessage: parsed.data.publicReplyEnabled
         ? publicReplyList[0] ?? parsed.data.publicReplyMessage ?? null
         : null,
+      emailGateEnabled: parsed.data.emailGateEnabled,
+      emailPromptMessage: parsed.data.emailGateEnabled
+        ? parsed.data.emailPromptMessage?.trim() || null
+        : null,
+      emailInvalidMessage: parsed.data.emailGateEnabled
+        ? parsed.data.emailInvalidMessage?.trim() || null
+        : null,
+      emailThanksMessage: parsed.data.emailGateEnabled
+        ? parsed.data.emailThanksMessage?.trim() || null
+        : null,
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
       workspaceId,
@@ -527,6 +547,22 @@ export async function PATCH(request: NextRequest) {
   if (automationData.matchAnyPost === true || automationData.pendingNextReel === true) {
     automationData.postId = null;
     automationData.postUrl = null;
+  }
+  // Email gate: a disabled gate clears its three messages; an empty box means
+  // "use the built-in wording", which is stored as null rather than "".
+  if (automationData.emailGateEnabled === false) {
+    automationData.emailPromptMessage = null;
+    automationData.emailInvalidMessage = null;
+    automationData.emailThanksMessage = null;
+  } else {
+    for (const field of [
+      "emailPromptMessage",
+      "emailInvalidMessage",
+      "emailThanksMessage",
+    ] as const) {
+      const value = automationData[field];
+      if (value !== undefined) automationData[field] = value?.trim() || null;
+    }
   }
   // Keep the public-reply variations list and the legacy single field in sync.
   if (automationData.publicReplyMessages !== undefined) {

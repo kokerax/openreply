@@ -28,6 +28,10 @@ const {
       update: vi.fn(),
       create: vi.fn(),
     },
+    lead: {
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+    },
     instagramAccount: {
       findUnique: vi.fn(),
     },

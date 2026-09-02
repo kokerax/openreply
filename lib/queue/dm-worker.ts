@@ -38,6 +38,7 @@ import {
   renderMessageWithTracking,
   renderMessageWithoutLink,
 } from "@/lib/tracking/message";
+import { extractEmail } from "@/lib/utils/email-extract";
 
 const BACKOFF_DELAYS = [5 * 60 * 1000, 15 * 60 * 1000, 45 * 60 * 1000];
 
@@ -584,10 +585,18 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       }
     }
 
+    // E-posta kapisi: link gonderilmeden ONCE adres istenir. Bu dal acikken
+    // acilis DM'i / takip istemi / link DEVREYE GIRMEZ — kisi adresini yazinca
+    // (processMessage -> epostaKapisiniIsle) sira onlara gelir.
+    const epostaKapisi =
+      automation.emailGateEnabled &&
+      !(await epostaVerdiMi(automation.id, commenterId));
+
     // With an opening DM, the private reply is a button message; tapping it
     // fires a postback that delivers the reveal (see processPostback). Without
     // one, we send the reveal text directly as today.
     const useOpeningDm =
+      !epostaKapisi &&
       automation.openingDmEnabled &&
       Boolean(automation.openingDmMessage) &&
       Boolean(automation.openingDmButtonLabel);
@@ -598,13 +607,47 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // status at comment time: confirmed followers get the link now, everyone
     // else gets the "follow me first" prompt (re-verified on tap).
     let sendFollowPrompt = false;
-    if (automation.requireFollow && !useOpeningDm) {
+    if (automation.requireFollow && !useOpeningDm && !epostaKapisi) {
       const alreadyFollows = await getUserFollowStatus(accessToken, commenterId);
       sendFollowPrompt = alreadyFollows !== true;
     }
 
     try {
-      if (useOpeningDm) {
+      if (epostaKapisi) {
+        const istemMetni = renderMessageWithoutLink({
+          message:
+            automation.emailPromptMessage ||
+            "Linki gondermem icin e-posta adresini bu sohbete yazar misin?",
+          commenterName,
+        });
+        await sendPrivateReply(
+          accessToken,
+          automation.instagramAccount.instagramId,
+          commentId,
+          istemMetni
+        );
+        // Bekleme kaydi: processMessage bu satiri gorup kisinin akista
+        // oldugunu anlar; commenterName'i ve tekrar sayacini da tasir.
+        await prisma.dmLog.upsert({
+          where: {
+            automationId_commentId: {
+              automationId: automation.id,
+              commentId: epostaKapisiAnahtari(commenterId),
+            },
+          },
+          create: {
+            workspaceId: automation.workspaceId,
+            automationId: automation.id,
+            instagramAccountId: automation.instagramAccountId,
+            commenterId,
+            commenterName,
+            commentText: "(e-posta bekleniyor)",
+            commentId: epostaKapisiAnahtari(commenterId),
+            status: "PENDING",
+          },
+          update: { commenterName },
+        });
+      } else if (useOpeningDm) {
         const openingText = renderMessageWithTracking({
           message: automation.openingDmMessage as string,
           commenterName,
@@ -764,6 +807,267 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
  * The postback payload is `reveal:<automationId>`; the sender is the user's
  * IGSID (same id as their comment author id), which we DM directly.
  */
+/** epostaSonrasiLinkiGonder'in ihtiyaci: reveal alanlari + kapi/kota alanlari. */
+type EpostaKapisiKampanyasi = RevealAutomation & {
+  id: string;
+  workspaceId: string;
+  instagramAccountId: string;
+  requireFollow: boolean;
+  followPromptMessage: string | null;
+  followPromptButtonLabel: string | null;
+  followUpEnabled: boolean;
+  followUpMessage: string | null;
+  followUpDelayMinutes: number | null;
+};
+
+/* ------------------------- E-POSTA KAPISI ------------------------- */
+
+/** Kisi basina TEK bekleme kaydi; DmLog'un (automationId, commentId) benzersizligini kullanir. */
+function epostaKapisiAnahtari(igsid: string): string {
+  return `emailgate:${igsid}`;
+}
+
+/** Bozuk adres icin kac kez tekrar sorulur (sonsuz dongu olmasin). */
+const EPOSTA_MAX_TEKRAR = 3;
+
+/**
+ * Bu kisi bu kampanyada e-posta kapisini gecti mi?
+ * Lead varsa gecmistir — bir daha adres istenmez.
+ */
+async function epostaVerdiMi(automationId: string, igsid: string): Promise<boolean> {
+  const lead = await prisma.lead.findUnique({
+    where: { automationId_igsid: { automationId, igsid } },
+    select: { id: true },
+  });
+  return Boolean(lead);
+}
+
+/**
+ * E-posta alindiktan sonra asil linki gonderir. processPostback'in kuyrugundaki
+ * ayni sira: kota -> hiz slotu -> reveal -> takip mesaji -> log.
+ * Takip kapisi ACIK ise once o kontrol edilir (fail-open: yalnizca kesin
+ * "takip etmiyor" cevabi engeller — kisi zaten adresini vermis durumda).
+ */
+async function epostaSonrasiLinkiGonder(
+  job: Job<DmQueueJob>,
+  accessToken: string,
+  automation: EpostaKapisiKampanyasi,
+  igsid: string,
+  commenterName: string | null
+): Promise<void> {
+  if (automation.requireFollow) {
+    const follows = await getUserFollowStatus(accessToken, igsid);
+    if (follows === false) {
+      const promptText = renderMessageWithoutLink({
+        message:
+          automation.followPromptMessage ||
+          "Linki gondermem icin once takip etmen gerekiyor. Takip ettikten sonra butona bas.",
+        commenterName,
+      });
+      await sendDirectMessageWithButton(
+        accessToken,
+        automation.instagramAccount.instagramId,
+        igsid,
+        promptText,
+        automation.followPromptButtonLabel || "Following",
+        `followcheck:${automation.id}`
+      );
+      return;
+    }
+  }
+
+  const dedupeId = `reveal:${igsid}`;
+  const usage = await reserveWorkspaceDMSend(automation.workspaceId);
+  if (!usage.allowed) return;
+  if (!(await hizSlotuAl(automation.instagramAccount.instagramId, job, "eposta"))) return;
+
+  try {
+    await sendRevealDirectMessage(
+      accessToken,
+      automation,
+      igsid,
+      commenterName,
+      "postback"
+    );
+    if (automation.followUpEnabled && automation.followUpMessage?.trim()) {
+      await getDMQueue().add(
+        FOLLOWUP_JOB_NAME,
+        {
+          instagramAccountId: automation.instagramAccount.instagramId,
+          userId: igsid,
+          automationId: automation.id,
+          commenterName,
+        },
+        {
+          delay: Math.max(0, automation.followUpDelayMinutes ?? 0) * 60_000,
+          jobId: `followup_${automation.id}_${igsid}`,
+        }
+      );
+    }
+    await prisma.dmLog.upsert({
+      where: { automationId_commentId: { automationId: automation.id, commentId: dedupeId } },
+      create: {
+        workspaceId: automation.workspaceId,
+        automationId: automation.id,
+        instagramAccountId: automation.instagramAccountId,
+        commenterId: igsid,
+        commenterName,
+        commentText: "(e-posta alindi)",
+        commentId: dedupeId,
+        status: "SENT",
+        dmSentAt: new Date(),
+      },
+      update: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
+    });
+  } catch (error) {
+    await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
+    await prisma.dmLog.upsert({
+      where: { automationId_commentId: { automationId: automation.id, commentId: dedupeId } },
+      create: {
+        workspaceId: automation.workspaceId,
+        automationId: automation.id,
+        instagramAccountId: automation.instagramAccountId,
+        commenterId: igsid,
+        commenterName,
+        commentText: "(e-posta alindi)",
+        commentId: dedupeId,
+        status: "FAILED",
+        errorMessage: formatError(error),
+      },
+      update: { status: "FAILED", errorMessage: formatError(error) },
+    });
+    throw error;
+  }
+}
+
+/**
+ * Gelen DM'i e-posta kapisi acisindan degerlendirir.
+ * Doner: true = bu mesaj kapi tarafindan ele alindi, normal anahtar-kelime
+ * akisi CALISTIRILMAMALI.
+ */
+async function epostaKapisiniIsle(
+  job: Job<ProcessMessageJob>,
+  igAccountId: string,
+  senderId: string,
+  messageText: string
+): Promise<boolean> {
+  const bekleyenler = await prisma.automation.findMany({
+    where: {
+      isActive: true,
+      emailGateEnabled: true,
+      instagramAccount: { instagramId: igAccountId },
+    },
+    include: {
+      instagramAccount: true,
+      workspace: true,
+      trackedLinks: {
+        select: { slug: true, label: true, destinationUrl: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  for (const automation of bekleyenler) {
+    // Sorgu zaten filtreliyor; burada da bakiyoruz ki fonksiyon cagiran koddan
+    // bagimsiz olarak dogru olsun (kapi kapaliysa hicbir sey yapma).
+    if (!automation.emailGateEnabled) continue;
+    if (await epostaVerdiMi(automation.id, senderId)) continue;
+
+    // Kisi bu kampanyanin akisinda mi? (yorum yapti ve kendisine adres soruldu)
+    // Kayit yoksa bu, kapiyla ilgisi olmayan rastgele bir DM'dir — dokunma.
+    const kapiKaydi = await prisma.dmLog.findUnique({
+      where: {
+        automationId_commentId: {
+          automationId: automation.id,
+          commentId: epostaKapisiAnahtari(senderId),
+        },
+      },
+    });
+    if (!kapiKaydi) continue;
+
+    if (!automation.instagramAccount.accessToken) continue;
+    let accessToken: string;
+    try {
+      accessToken = decryptToken(automation.instagramAccount.accessToken);
+    } catch {
+      continue;
+    }
+    const commenterName = kapiKaydi.commenterName ?? null;
+    const eposta = extractEmail(messageText);
+
+    if (!eposta) {
+      // Bozuk/eksik adres: sinirli sayida tekrar sor, sonra sessizce birak
+      // (kisi baska bir sey yaziyor olabilir; sonsuz "adres yaz" dongusu YOK).
+      if ((kapiKaydi.attempts ?? 0) >= EPOSTA_MAX_TEKRAR) return true;
+      await prisma.dmLog.update({
+        where: { id: kapiKaydi.id },
+        data: { attempts: { increment: 1 } },
+      });
+      if (!(await hizSlotuAl(igAccountId, job as Job<DmQueueJob>, "eposta-tekrar"))) return true;
+      try {
+        await sendDirectMessage(
+          accessToken,
+          automation.instagramAccount.instagramId,
+          senderId,
+          renderMessageWithoutLink({
+            message:
+              automation.emailInvalidMessage ||
+              "Bunu bir e-posta adresi olarak okuyamadim. ornek@eposta.com seklinde yazar misin?",
+            commenterName,
+          })
+        );
+      } catch (error) {
+        console.log("[DM Worker] E-posta tekrar istegi gonderilemedi:", formatError(error));
+      }
+      return true;
+    }
+
+    await prisma.lead.upsert({
+      where: { automationId_igsid: { automationId: automation.id, igsid: senderId } },
+      create: {
+        workspaceId: automation.workspaceId,
+        automationId: automation.id,
+        instagramAccountId: automation.instagramAccountId,
+        igsid: senderId,
+        username: commenterName,
+        email: eposta,
+        sourceText: messageText.slice(0, 500),
+      },
+      update: { email: eposta, sourceText: messageText.slice(0, 500), username: commenterName },
+    });
+    await prisma.dmLog.update({
+      where: { id: kapiKaydi.id },
+      data: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
+    });
+
+    const tesekkur = automation.emailThanksMessage?.trim();
+    if (tesekkur) {
+      try {
+        await sendDirectMessage(
+          accessToken,
+          automation.instagramAccount.instagramId,
+          senderId,
+          renderMessageWithoutLink({ message: tesekkur, commenterName })
+        );
+      } catch (error) {
+        console.log("[DM Worker] Tesekkur mesaji gonderilemedi:", formatError(error));
+      }
+    }
+
+    await epostaSonrasiLinkiGonder(
+      job as Job<DmQueueJob>,
+      accessToken,
+      automation,
+      senderId,
+      commenterName
+    );
+    return true;
+  }
+
+  return false;
+}
+
 async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   const { instagramAccountId, userId, payload, fallback } = job.data;
 
@@ -1035,6 +1339,13 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
  */
 async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   const { instagramAccountId, messageId, messageText, senderId } = job.data;
+
+  // E-posta kapisi anahtar kelimeden ONCE calisir: kisi adresini yaziyor olabilir
+  // ve o metin hicbir anahtar kelimeyle eslesmez. Kapi mesaji ustlendiyse normal
+  // akis CALISTIRILMAZ (yoksa ayni mesaja iki cevap gider).
+  if (await epostaKapisiniIsle(job, instagramAccountId, senderId, messageText)) {
+    return;
+  }
 
   const automations = await prisma.automation.findMany({
     where: {

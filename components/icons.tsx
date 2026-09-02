@@ -83,3 +83,6 @@ export const IconLink = (p: IconProps) => (
 export const IconMore = (p: IconProps) => (
   <svg {...base(p)}><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
 );
+export const IconMail = (p: IconProps) => (
+  <svg {...base(p)}><rect x="2.5" y="5" width="19" height="14" rx="2" /><path d="m3 7 8.1 5.4a1.6 1.6 0 0 0 1.8 0L21 7" /></svg>
+);
