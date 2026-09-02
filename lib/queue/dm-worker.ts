@@ -810,6 +810,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 /** epostaSonrasiLinkiGonder'in ihtiyaci: reveal alanlari + kapi/kota alanlari. */
 type EpostaKapisiKampanyasi = RevealAutomation & {
   id: string;
+  name: string;
   workspaceId: string;
   instagramAccountId: string;
   requireFollow: boolean;
@@ -819,6 +820,65 @@ type EpostaKapisiKampanyasi = RevealAutomation & {
   followUpMessage: string | null;
   followUpDelayMinutes: number | null;
 };
+
+/* ------------------------- TAKIP KAPISI ------------------------- */
+
+/** Takip durumu okunamayan kisiye kac kez "once takip et" istemi gonderilir. */
+const TAKIP_ISTEMI_MAX = 3;
+
+/**
+ * Kapi SIKI (fail-closed): yalnizca `true` gecer. `false` VE `null` (okunamadi)
+ * link ALMAZ — kullanicinin kurali: "takip etmezse yollama".
+ *
+ * Olcum (2026-09-02, canli hesap): sohbeti acik olan 25 kisinin 25'inde durum
+ * okunabildi (null YOK); yalnizca yorum yapmislarda %76 null. Yani bu yol —
+ * buton dokunusu / DM — sikilastirildiginda gercek takipci magdur olmuyor.
+ * Yine de null israr ederse sonsuz istem dongusu olusmasin diye sayac var;
+ * limit dolunca SESSIZ kalmiyoruz, Diagnostics'e uyari yaziyoruz.
+ */
+async function takipIstemiGonderilebilirMi(
+  automation: { id: string; name: string; workspaceId: string; instagramAccountId: string },
+  userId: string,
+  commenterName: string | null
+): Promise<boolean> {
+  const anahtar = `followgate:${userId}`;
+  const kayit = await prisma.dmLog.upsert({
+    where: { automationId_commentId: { automationId: automation.id, commentId: anahtar } },
+    create: {
+      workspaceId: automation.workspaceId,
+      automationId: automation.id,
+      instagramAccountId: automation.instagramAccountId,
+      commenterId: userId,
+      commenterName,
+      commentText: "(takip istemi)",
+      commentId: anahtar,
+      status: "PENDING",
+      attempts: 1,
+    },
+    update: { attempts: { increment: 1 } },
+    select: { attempts: true },
+  });
+
+  // `?? 1`: sayac okunamazsa istemi ENGELLEME — okunamayan bir sayac yuzunden
+  // kapinin tamamen susmasi, sinirin asilmasindan daha kotu bir arizadir.
+  const deneme = kayit?.attempts ?? 1;
+  if (deneme <= TAKIP_ISTEMI_MAX) return true;
+
+  if (deneme === TAKIP_ISTEMI_MAX + 1) {
+    await prisma.operationalEvent
+      .create({
+        data: {
+          workspaceId: automation.workspaceId,
+          source: "SYSTEM",
+          level: "WARNING",
+          message: `Takip kapisi: "${automation.name}" — @${commenterName ?? userId} icin takip durumu ${TAKIP_ISTEMI_MAX} istemde de dogrulanamadi, istem durduruldu`,
+          payload: { automationId: automation.id, userId, commenterName },
+        },
+      })
+      .catch(() => {});
+  }
+  return false;
+}
 
 /* ------------------------- E-POSTA KAPISI ------------------------- */
 
@@ -857,7 +917,9 @@ async function epostaSonrasiLinkiGonder(
 ): Promise<void> {
   if (automation.requireFollow) {
     const follows = await getUserFollowStatus(accessToken, igsid);
-    if (follows === false) {
+    // SIKI: `false` de `null` (okunamadi) da link ALMAZ.
+    if (follows !== true) {
+      if (!(await takipIstemiGonderilebilirMi(automation, igsid, commenterName))) return;
       const promptText = renderMessageWithoutLink({
         message:
           automation.followPromptMessage ||
@@ -1127,16 +1189,21 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     return;
   }
 
-  // Follow-gate: before revealing the link, verify the user follows. On a
-  // `followcheck:` tap a non-follower gets the prompt again (no quota spent);
-  // on a read fallback a non-follower is silently skipped — the gate must not
-  // be bypassable by just reading the DM and waiting. Following, or
-  // unverifiable (null), falls through and delivers the link — fail-open so a
-  // real follower is never trapped.
+  // Takip kapisi — SIKI (fail-closed): link YALNIZCA durum `true` donerse gider.
+  // `false` de `null` (okunamadi) da gecmez; okunamayana istem tekrar gonderilir
+  // (okuma-tabanli fallback'te sessizce atlanir, kapi beklemekle asilmasin).
+  //
+  // 2026-09-02'ye kadar burasi fail-open'di (yalnizca `false` engelliyordu):
+  // durum okunamayan biri butona basinca linki aliyordu. Kullanici kurali:
+  // "takip etmezse yollama". Sikilastirmanin gercek takipciyi magdur etmedigi
+  // OLCULDU: sohbeti acik 25 kisinin 25'inde durum okunabiliyor (null %0),
+  // null yalnizca hic DM'lesmemis yorumcularda cikiyor (%76) ve o yol zaten
+  // bu daldan gecmiyor.
   if ((isFollowCheck || fallback) && automation.requireFollow) {
     const follows = await getUserFollowStatus(accessToken, userId);
-    if (follows === false) {
+    if (follows !== true) {
       if (fallback) return;
+      if (!(await takipIstemiGonderilebilirMi(automation, userId, commenterName))) return;
       const promptText = renderMessageWithoutLink({
         message:
           automation.followPromptMessage ||

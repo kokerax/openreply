@@ -189,7 +189,8 @@ model Automation {
   openingDmMessage     String?
   openingDmButtonLabel String?
   linkButtonLabel      String?
-  requireFollow           Boolean @default(false)
+  /// Varsayilan ACIK: kullanici kurali — takip etmeyene link gonderilmez.
+  requireFollow           Boolean @default(true)
   followPromptMessage     String?
   followPromptButtonLabel String?
   followUpEnabled Boolean @default(false)

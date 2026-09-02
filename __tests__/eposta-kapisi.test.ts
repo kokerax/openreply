@@ -67,7 +67,7 @@ beforeEach(() => {
   mockPrisma.automation.findFirst.mockResolvedValue(kampanya);
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
   mockPrisma.dmLog.findFirst.mockResolvedValue(null);
-  mockPrisma.dmLog.create.mockResolvedValue({}); mockPrisma.dmLog.upsert.mockResolvedValue({}); mockPrisma.dmLog.update.mockResolvedValue({});
+  mockPrisma.dmLog.create.mockResolvedValue({}); mockPrisma.dmLog.upsert.mockResolvedValue({ attempts: 1 }); mockPrisma.dmLog.update.mockResolvedValue({});
   mockPrisma.lead.findUnique.mockResolvedValue(null); mockPrisma.lead.upsert.mockResolvedValue({});
   mockPrisma.instagramAccount.findUnique.mockResolvedValue({ workspaceId: "ws1" });
   mockPrisma.operationalEvent.create.mockResolvedValue({});
@@ -142,6 +142,17 @@ describe("e-posta kapısı", () => {
     await processJob(mesajIsi("ali@example.com") as never);
     expect(mockPrisma.lead.upsert).toHaveBeenCalledTimes(1);           // adres YİNE kaydedilir
     expect(sendDirectMessageWithLinkButton).not.toHaveBeenCalled();     // link yok
+    expect(sendDirectMessageWithButton.mock.calls[0][4]).toBe("Following");
+  });
+
+  it("adres alındı ama takip durumu OKUNAMIYOR (null) → link GİTMEZ, takip istemi gider", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([{ ...kampanya, requireFollow: true }]);
+    mockPrisma.dmLog.findUnique.mockImplementation(async (a: { where?: { automationId_commentId?: { commentId?: string } } }) =>
+      String(a.where?.automationId_commentId?.commentId).startsWith("emailgate:") ? kapiKaydi : null);
+    getUserFollowStatus.mockResolvedValue(null);   // durum okunamiyor
+    await processJob(mesajIsi("ali@example.com") as never);
+    expect(mockPrisma.lead.upsert).toHaveBeenCalledTimes(1);          // adres yine kaydedilir
+    expect(sendDirectMessageWithLinkButton).not.toHaveBeenCalled();   // ama link YOK
     expect(sendDirectMessageWithButton.mock.calls[0][4]).toBe("Following");
   });
 

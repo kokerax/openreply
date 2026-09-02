@@ -46,7 +46,7 @@ beforeEach(() => {
   mockPrisma.automation.findFirst.mockResolvedValue(gta);
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
   mockPrisma.dmLog.findFirst.mockImplementation(async (a: { where?: { status?: string } } = {}) => (a.where?.status === "SENT" ? null : { commenterName: "ali_test" }));
-  mockPrisma.dmLog.create.mockResolvedValue({}); mockPrisma.dmLog.upsert.mockResolvedValue({}); mockPrisma.dmLog.update.mockResolvedValue({});
+  mockPrisma.dmLog.create.mockResolvedValue({}); mockPrisma.dmLog.upsert.mockResolvedValue({ attempts: 1 }); mockPrisma.dmLog.update.mockResolvedValue({});
   mockPrisma.lead.findUnique.mockResolvedValue(null); mockPrisma.lead.upsert.mockResolvedValue({});
   mockPrisma.instagramAccount.findUnique.mockResolvedValue({ workspaceId: gta.workspaceId });
   mockPrisma.operationalEvent.create.mockResolvedValue({});
