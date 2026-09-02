@@ -1,0 +1,58 @@
+{
+ "id": "cmtk5i16e0000q4dttxq6icz4",
+ "workspaceId": "cmthj0z300001qgdt9chjwkg1",
+ "instagramAccountId": "cmthj0zay0003qgdt5es7ogtk",
+ "name": "GTA VI Prompt",
+ "goal": null,
+ "postId": null,
+ "postUrl": null,
+ "pendingNextReel": false,
+ "matchAnyPost": true,
+ "keywords": [
+  "gta",
+  "prompt",
+  "promt"
+ ],
+ "matchAnyWord": false,
+ "dmTriggerEnabled": true,
+ "dmMessage": "🎮 İşte GTA VI görselinin prompt'u, aşağıdaki butondan ulaşabilirsin:\nhttps://www.yapayzekakademisi.com/",
+ "openingDmEnabled": true,
+ "openingDmMessage": "🎮 Merhaba, yorumun için teşekkürler!\nGTA VI görselinin prompt'u takipçilerime özel, almak için aşağıdaki butona tıkla",
+ "openingDmButtonLabel": "PROMPTU YOLLA",
+ "linkButtonLabel": "PROMPTA GİT",
+ "requireFollow": true,
+ "followPromptMessage": "🎮 İşte GTA VI görselinin prompt'u, aşağıdaki butondan ulaşabilirsin:\nhttps://www.yapayzekakademisi.com/",
+ "followPromptButtonLabel": "Following",
+ "followUpEnabled": true,
+ "followUpMessage": "Prompt'u kendi fotoğrafınla dene, sonucu story'de paylaşıp beni etiketle 🎮",
+ "followUpDelayMinutes": 0,
+ "publicReplyEnabled": true,
+ "publicReplyMessage": "DM'den gönderdim 🎮 Mesaj isteklerini kontrol etmeyi unutma.",
+ "publicReplyMessages": [],
+ "isActive": true,
+ "wholeWordMatch": false,
+ "reportShareSlug": "CYG1nGWKeMjp",
+ "reportShareEnabled": false,
+ "createdAt": "2026-09-02T13:47:40.790Z",
+ "updatedAt": "2026-09-02T13:47:40.790Z",
+ "trackedLinks": [
+  {
+   "id": "cmtk5i18c0001q4dtc2cheruc",
+   "workspaceId": "cmthj0z300001qgdt9chjwkg1",
+   "automationId": "cmtk5i16e0000q4dttxq6icz4",
+   "slug": "gta-4506ce",
+   "label": "PROMPTA GİT",
+   "destinationUrl": "https://www.yapayzekakademisi.com/",
+   "createdAt": "2026-09-02T13:47:40.790Z",
+   "updatedAt": "2026-09-02T13:47:40.790Z"
+  }
+ ],
+ "instagramAccount": {
+  "id": "cmthj0zay0003qgdt5es7ogtk",
+  "instagramId": "17841465942418709",
+  "accessToken": "encrypted_token_placeholder"
+ },
+ "workspace": {
+  "id": "cmthj0z300001qgdt9chjwkg1"
+ }
+}
