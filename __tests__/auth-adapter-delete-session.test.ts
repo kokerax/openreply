@@ -6,7 +6,8 @@ const del = vi.fn(async () => {
   e.code = "P2025";
   throw e;
 });
-vi.mock("@/lib/db/client", () => ({ prisma: { session: { deleteMany, delete: del }, operationalEvent: { create: vi.fn() } } }));
+const findUnique = vi.fn(async () => null);
+vi.mock("@/lib/db/client", () => ({ prisma: { session: { deleteMany, delete: del, findUnique }, operationalEvent: { create: vi.fn() } } }));
 vi.mock("next-auth", () => ({ default: () => ({ handlers: {}, auth: vi.fn(), signIn: vi.fn(), signOut: vi.fn() }) }));
 vi.mock("next-auth/providers/nodemailer", () => ({ default: () => ({}) }));
 vi.mock("next-auth/providers/resend", () => ({ default: () => ({}) }));
@@ -17,7 +18,7 @@ describe("dayanikliAdapter.deleteSession", () => {
     const { dayanikliAdapter } = await import("@/lib/auth");
     const base = { deleteSession: (t: string) => del() };
     const a = dayanikliAdapter(base) as { deleteSession: (t: string) => Promise<void> };
-    await expect(a.deleteSession("stale-cookie-token")).resolves.toBeUndefined();
+    await expect(a.deleteSession("stale-cookie-token")).resolves.toBeNull();
     expect(deleteMany).toHaveBeenCalledWith({ where: { sessionToken: "stale-cookie-token" } });
     expect(del).not.toHaveBeenCalled();
   });

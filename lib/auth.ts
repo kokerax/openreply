@@ -32,7 +32,10 @@ export function dayanikliAdapter<A extends { deleteSession?: unknown }>(base: A)
   return {
     ...base,
     deleteSession: async (sessionToken: string) => {
+      // Auth.js `events.signOut` silinen oturumu bekler; yoksa null (no-op).
+      const mevcut = await prisma.session.findUnique({ where: { sessionToken } });
       await prisma.session.deleteMany({ where: { sessionToken } });
+      return mevcut;
     },
   };
 }
