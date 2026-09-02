@@ -20,8 +20,25 @@ const smtpServer = process.env.EMAIL_SERVER;
  */
 export const EMAIL_PROVIDER_ID = smtpServer ? "nodemailer" : "resend";
 
+/**
+ * @auth/prisma-adapter 2.11.2 `deleteSession` = `prisma.session.delete()`, kayit
+ * yoksa P2025 firlatir. Auth.js e-posta callback'i, tarayicidaki oturum cerezi
+ * DB'de bulunamayinca (eski/silinmis oturum) "baska kullanicinin oturumu, sil"
+ * diye bunu cagirir → P2025 → AdapterError → kullanici "Configuration" ekrani
+ * gorur ve HIC giremez. (2026-09-02: gercek kayit, `sebep` alaninda P2025.)
+ * Olmayan oturumu silmek hata degil, no-op olmali → deleteMany.
+ */
+export function dayanikliAdapter<A extends { deleteSession?: unknown }>(base: A): A {
+  return {
+    ...base,
+    deleteSession: async (sessionToken: string) => {
+      await prisma.session.deleteMany({ where: { sessionToken } });
+    },
+  };
+}
+
 export const authConfig = {
-  adapter: PrismaAdapter(prisma as unknown as AdapterPrismaClient),
+  adapter: dayanikliAdapter(PrismaAdapter(prisma as unknown as AdapterPrismaClient)),
   providers: [
     smtpServer
       ? Nodemailer({ server: smtpServer, from: emailFrom })
