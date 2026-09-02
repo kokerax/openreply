@@ -147,7 +147,8 @@ export async function GET(request: NextRequest) {
         select: { username: true, instagramId: true },
       },
       _count: {
-        select: { dmLogs: true },
+        // Goc muhurleri (isBackfill) "gonderildi" degildir — dashboard ile ayni filtre.
+        select: { dmLogs: { where: { isBackfill: false } } },
       },
       trackedLinks: {
         select: {
@@ -183,7 +184,7 @@ export async function GET(request: NextRequest) {
   const [statusCounts, clickCounts, keywordCounts] = await Promise.all([
     prisma.dmLog.groupBy({
       by: ["automationId", "status"],
-      where: { workspaceId },
+      where: { workspaceId, isBackfill: false },
       _count: { _all: true },
     }),
     prisma.linkClick.groupBy({
@@ -193,7 +194,7 @@ export async function GET(request: NextRequest) {
     }),
     prisma.dmLog.groupBy({
       by: ["automationId", "matchedKeyword"],
-      where: { workspaceId, matchedKeyword: { not: null } },
+      where: { workspaceId, isBackfill: false, matchedKeyword: { not: null } },
       _count: { _all: true },
     }),
   ]);

@@ -30,7 +30,11 @@ export function titleFor(pathname: string): string {
   let best: [string, string] | null = null;
   for (const entry of pageTitles) {
     const [prefix] = entry;
-    const hit = pathname === prefix || pathname.startsWith(prefix.endsWith("/") ? prefix : prefix + "/") || pathname === prefix.replace(/\/$/, "");
+    // Trailing-slash entries ("/campaigns/") mean "any child route"; they must
+    // not claim the bare parent, otherwise /campaigns reads "Campaign".
+    const hit = prefix.endsWith("/")
+      ? pathname.startsWith(prefix) && pathname.length > prefix.length
+      : pathname === prefix || pathname.startsWith(prefix + "/");
     if (hit && (!best || prefix.length > best[0].length)) best = entry;
   }
   return best?.[1] ?? "Dashboard";

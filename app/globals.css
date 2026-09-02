@@ -100,6 +100,7 @@ select:focus-visible {
   }
 }
 
+@layer components {
 /* ---------- Primitives (use these instead of ad-hoc classes) ---------- */
 
 /* Container */
@@ -274,6 +275,8 @@ select:focus-visible {
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-foreground);
+}
+
 }
 
 /* Legacy aliases — keep old markup rendering as plain surfaces. */

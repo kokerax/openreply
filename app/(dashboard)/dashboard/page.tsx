@@ -143,6 +143,7 @@ export default function DashboardPage() {
   // Beyond two weeks the chart scrolls horizontally instead of squeezing bars;
   // labels thin out so they never overlap.
   const wide = dailyDMs.length > 14;
+  const BAR_AREA_PX = 112; // h-40 minus value/date labels
   const labelEvery = dailyDMs.length <= 14 ? 1 : dailyDMs.length <= 31 ? 5 : 15;
 
   return (
@@ -251,7 +252,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={day.date}
-                      className={`flex min-w-0 flex-col items-center gap-1 ${wide ? "w-3 shrink-0" : "flex-1"}`}
+                      className={`flex h-full min-w-0 flex-col items-center justify-end gap-1 ${wide ? "w-3 shrink-0" : "flex-1"}`}
                       title={`${shortDay(day.date)}: ${nf.format(day.count)} DM${day.count === 1 ? "" : "s"}`}
                     >
                       {!wide && (
@@ -259,7 +260,10 @@ export default function DashboardPage() {
                       )}
                       <div
                         className="w-full flex-none rounded-sm bg-accent transition-[height] hover:bg-accent-hover"
-                        style={{ height: `${Math.max((day.count / maxDM) * 100, 3)}%` }}
+                        // Pixel height, not %: the column is a flex item with
+                        // auto height, so a % height would resolve to 0 and the
+                        // bar vanishes (it did — 172 DMs rendered as an empty chart).
+                        style={{ height: `${Math.max(Math.round((day.count / maxDM) * BAR_AREA_PX), 3)}px` }}
                       />
                       {/* Wide mode: 12px columns, so shown labels spill over their
                           hidden neighbours instead of being truncated to nothing. */}
