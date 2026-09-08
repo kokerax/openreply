@@ -116,6 +116,13 @@ const NON_TEMPLATE_REJECTIONS = [
   /outside of allowed window/i,
   /invalid for a private reply/i,
   /requested user cannot be found/i,
+  // Meta 368: the account itself is temporarily blocked from messaging. The
+  // text retry is refused too, and because the first attempt already consumed
+  // the comment's single private reply, its error ("invalid for a private
+  // reply") lands on the row and hides the block. Two days of outage were
+  // logged under the wrong reason before this pattern was added.
+  /temporarily blocked from taking this action/i,
+  /code=368/i,
 ];
 
 function isTemplateRejection(error: unknown): boolean {

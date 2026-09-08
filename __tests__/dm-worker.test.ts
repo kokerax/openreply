@@ -909,6 +909,37 @@ describe("DM Worker — one private reply per comment", () => {
     );
   });
 
+  it("should not fall back to plain text when the account is temporarily blocked (Meta 368)", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([
+      {
+        ...mockAutomation,
+        trackedLinks: [
+          { slug: "abc123", label: null, destinationUrl: "https://example.com" },
+        ],
+      },
+    ]);
+    const blok =
+      "Meta API Error 368: Based on previous use of this feature, your account has been temporarily blocked from taking this action. (/v25.0/17841465942418709/messages) [code=368 sub=1404169 type=OAuthException]";
+    mockSendPrivateReplyWithLinkButton.mockRejectedValue(new Error(blok));
+
+    const processor = getProcessor();
+    await expect(processor(createMockJob())).rejects.toThrow(
+      "temporarily blocked"
+    );
+
+    // The retry is refused too and its error ("invalid for a private reply")
+    // would overwrite the real reason, so the block must surface untouched.
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "FAILED",
+          errorMessage: expect.stringContaining("368"),
+        }),
+      })
+    );
+  });
+
   it("should still fall back to plain text when the button template itself is rejected", async () => {
     mockPrisma.automation.findMany.mockResolvedValue([
       {
