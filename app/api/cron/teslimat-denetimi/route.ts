@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
+import { bloktanKurtar } from "@/lib/ops/kurtarma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -195,9 +196,26 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // ── 5) Blok sonrasi kurtarma ────────────────────────────────────────────
+  // Denetim yalnizca ALARM veriyordu; gecici Instagram blogu sirasinda dusen
+  // gonderimler hicbir zaman yeniden denenmiyordu (yorum tarayicisinin
+  // penceresi dar, kayit oradan cikinca kimse bakmiyor). Saatlik, tavanli.
+  const kurtarma = await bloktanKurtar();
+  if (kurtarma.kuyruklanan > 0) {
+    await prisma.operationalEvent.create({
+      data: {
+        source: "HEALTH",
+        level: "INFO",
+        message: `Blok kurtarmasi: ${kurtarma.kuyruklanan} gonderim yeniden kuyruklandi`,
+        payload: { ...kurtarma },
+      },
+    });
+  }
+
   return NextResponse.json({
     success: true,
     pencereSaat: PENCERE_SAAT,
+    kurtarma,
     eslesenYorum: eslesen.length,
     incelenenKisi: kisiBasi.size,
     mesajAlmayan: kacan.length,

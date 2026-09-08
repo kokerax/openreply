@@ -10,7 +10,9 @@ import { PgQueue } from "./pg-queue";
 
 // ─── DM Queue ───────────────────────────────────────────────────────────────────
 
-export type CommentSource = "WEBHOOK" | "POLLING";
+// "KURTARMA": gecici Instagram blogu sirasinda dusmus bir gonderimin
+// yeniden kuyruklanmasi (lib/ops/kurtarma.ts).
+export type CommentSource = "WEBHOOK" | "POLLING" | "KURTARMA";
 
 export interface ProcessCommentJob {
   instagramAccountId: string;
