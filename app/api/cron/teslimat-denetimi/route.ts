@@ -22,6 +22,7 @@ import { prisma } from "@/lib/db/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 import { bloktanKurtar } from "@/lib/ops/kurtarma";
+import { eksikYorumCevaplariniTamamla } from "@/lib/ops/yorum-cevabi-kurtarma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -212,10 +213,26 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // ── 6) Eksik yorum cevaplari ────────────────────────────────────────────
+  // DM'i gitmis ama altina cevap dusmemis kayitlar birikiyordu; worker bu isi
+  // zaten biliyor, sadece kimse ona yeniden gostermiyor.
+  const yorumCevabi = await eksikYorumCevaplariniTamamla();
+  if (yorumCevabi.kuyruklanan > 0) {
+    await prisma.operationalEvent.create({
+      data: {
+        source: "HEALTH",
+        level: "INFO",
+        message: `Eksik yorum cevabi: ${yorumCevabi.kuyruklanan} kayit yeniden kuyruklandi`,
+        payload: { ...yorumCevabi },
+      },
+    });
+  }
+
   return NextResponse.json({
     success: true,
     pencereSaat: PENCERE_SAAT,
     kurtarma,
+    yorumCevabi,
     eslesenYorum: eslesen.length,
     incelenenKisi: kisiBasi.size,
     mesajAlmayan: kacan.length,

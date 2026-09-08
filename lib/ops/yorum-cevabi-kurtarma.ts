@@ -1,0 +1,114 @@
+/**
+ * Eksik yorum cevaplarini tamamlar.
+ *
+ * DM'i giden ama altina yorum cevabi DUSMEYEN kayitlar birikiyordu (2026-09-08
+ * itibariyla 229 kisi): yorum tarayicisi bunlari yalnizca kendi dar penceresi
+ * icinde geri getiriyor, pencereden cikan kayit bir daha kimsenin radarina
+ * girmiyor. Sebepler karisik — hiz siniri, Instagram tarafinda gecici hata, ya
+ * da (CITY kampanyasinda oldugu gibi) kampanyaya hic metin girilmemis olmasi.
+ *
+ * Worker zaten "DM gitti ama yorum cevabi gitmedi" durumunu biliyor ve yalnizca
+ * cevabi yeniden deniyor (`SENT` ezilmiyor). Bu yuzden burada yeni bir gonderim
+ * yolu YAZILMIYOR — ayni isi ayni yerden yapmak icin is yeniden kuyruklaniyor.
+ */
+import { prisma } from "@/lib/db/client";
+import { getDMQueue } from "@/lib/queue/client";
+
+/**
+ * Cok eski bir yorumun altina birden cevap dusmesi kullaniciya tuhaf gelir ve
+ * toplu/otomatik gorunur. Yalnizca son bir haftaya dokunuyoruz.
+ */
+const PENCERE_MS = 7 * 24 * 3600_000;
+
+/**
+ * "Yavas yavas": tur basina tavan. Saatlik cron ile ~15/saat eder; ayni metnin
+ * arka arkaya yagmasi Instagram'da spam sinyalidir, varyant havuzu da bu yuzden
+ * var. Worker'in kendi hiz siniri (dakikalik 8) bunun ustune biner.
+ */
+export const YORUM_TUR_TAVANI = 15;
+
+export interface YorumCevabiSonucu {
+  aday: number;
+  kuyruklanan: number;
+  kampanyalar: Record<string, number>;
+}
+
+/**
+ * DM'i gitmis ama yorum cevabi eksik kayitlari yeniden kuyruklar.
+ *
+ * @param limit Bu turda en fazla kac kayit.
+ * @param kuruDeneme true ise hicbir sey yazilmaz; sadece adaylar sayilir.
+ */
+export async function eksikYorumCevaplariniTamamla(
+  limit: number = YORUM_TUR_TAVANI,
+  kuruDeneme = false
+): Promise<YorumCevabiSonucu> {
+  const adaylar = await prisma.dmLog.findMany({
+    where: {
+      status: "SENT",
+      isBackfill: false,
+      publicReplySentAt: null,
+      createdAt: { gte: new Date(Date.now() - PENCERE_MS) },
+      automation: { publicReplyEnabled: true, isActive: true },
+    },
+    include: {
+      automation: {
+        select: { name: true, postId: true, publicReplyMessages: true },
+      },
+      instagramAccount: { select: { instagramId: true } },
+    },
+    // En yenisi once: yorum ne kadar tazeyse cevap o kadar dogal gorunur.
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  // Metni olmayan kampanyayi kuyruklamak bosuna tur harcar: worker
+  // `replyPool.length > 0` sartini gecemez ve kayit yarin yine aday olur.
+  const uygun = adaylar.filter(
+    (k) => k.automation.publicReplyMessages.length > 0
+  );
+
+  const sonuc: YorumCevabiSonucu = {
+    aday: uygun.length,
+    kuyruklanan: 0,
+    kampanyalar: {},
+  };
+
+  if (kuruDeneme) {
+    for (const k of uygun) {
+      sonuc.kampanyalar[k.automation.name] =
+        (sonuc.kampanyalar[k.automation.name] ?? 0) + 1;
+    }
+    return sonuc;
+  }
+
+  const queue = getDMQueue();
+
+  for (const kayit of uygun) {
+    const eklendi = await queue.add(
+      "process-comment",
+      {
+        instagramAccountId: kayit.instagramAccount.instagramId,
+        commentId: kayit.commentId,
+        commentText: kayit.commentText,
+        commenterId: kayit.commenterId,
+        commenterName: kayit.commenterName ?? undefined,
+        mediaId: kayit.automation.postId ?? "",
+        source: "KURTARMA",
+      },
+      {
+        // Gun basina tek deneme: ayni kayit her turda yeniden kuyruklanip
+        // yorum bolumune ayni cevabi yagdirmasin.
+        jobId: `yorumcevabi:${kayit.id}:${new Date().toISOString().slice(0, 10)}`,
+      }
+    );
+    // `add` mukerrer anahtarda null doner; o kayit bugun zaten denenmis.
+    if (eklendi) {
+      sonuc.kuyruklanan += 1;
+      sonuc.kampanyalar[kayit.automation.name] =
+        (sonuc.kampanyalar[kayit.automation.name] ?? 0) + 1;
+    }
+  }
+
+  return sonuc;
+}
