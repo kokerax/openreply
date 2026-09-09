@@ -10,7 +10,7 @@ import {
 import { decryptToken } from "@/lib/meta/oauth";
 import {
   CTA_PATTERN,
-  ortakDonemler,
+  ctaSecimi,
   halfYearLabel,
   localParts,
   median,
@@ -353,19 +353,14 @@ export async function GET(request: NextRequest) {
   // donemler karsilastiriliyor.
   const ctaVar = enriched.filter((p) => p.hasCta);
   const ctaYok = enriched.filter((p) => !p.hasCta);
-  const ctaDonemleri = ortakDonemler(ctaVar, ctaYok, MIN_BUCKET);
-  const donemFiltresi = (g: Post[]) =>
-    ctaDonemleri.length ? g.filter((p) => ctaDonemleri.includes(p.half)) : [];
-
-  const cta: TrendCta[] = [
-    ["Çağrı var", donemFiltresi(ctaVar)] as const,
-    ["Çağrı yok", donemFiltresi(ctaYok)] as const,
-  ]
-    .map(([label, group]) => {
-      const medianLikes = median(group.map((p) => p.likes));
-      const medianComments = median(group.map((p) => p.comments));
+  const secim = ctaSecimi(enriched, MIN_BUCKET);
+  const ctaDonemleri = secim.donemler;
+  const cta: TrendCta[] = secim.gruplar
+    .map(({ label, secili }) => {
+      const medianLikes = median(secili.map((p) => p.likes));
+      const medianComments = median(secili.map((p) => p.comments));
       return {
-        ...bucket(label, group),
+        ...bucket(label, secili),
         medianLikes,
         medianComments,
         commentPerLikePct: medianLikes

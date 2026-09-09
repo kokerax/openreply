@@ -6,7 +6,7 @@
  * 28-40K, 2026'da 5-7K. Panel farki cagriya bagliyordu, oysa donem farki.
  */
 import { describe, it, expect } from "vitest";
-import { ortakDonemler } from "@/lib/reports/trend-helpers";
+import { ctaSecimi, ortakDonemler } from "@/lib/reports/trend-helpers";
 
 const p = (half: string, n: number) => Array.from({ length: n }, () => ({ half }));
 
@@ -46,5 +46,43 @@ describe("ortakDonemler", () => {
     const a = [...p("2026 H1", 5), ...p("2024 H2", 5), ...p("2025 H1", 5)];
     const b = [...p("2026 H1", 5), ...p("2024 H2", 5), ...p("2025 H1", 5)];
     expect(ortakDonemler(a, b, 3)).toEqual(["2024 H2", "2025 H1", "2026 H1"]);
+  });
+});
+
+
+describe("ctaSecimi — karar saf fonksiyonda", () => {
+  const ic = (half: string, hasCta: boolean, n: number) =>
+    Array.from({ length: n }, () => ({ half, hasCta }));
+
+  it("ortak donem yoksa HIC karsilastirma yapmaz", () => {
+    // Canli vaka: cagrisiz icerikler 2025'te, cagrililar her donemde.
+    const s = ctaSecimi([...ic("2024 H2", true, 49), ...ic("2026 H1", true, 61),
+                         ...ic("2025 H1", false, 15)], 3);
+    expect(s.donemler).toEqual([]);
+    expect(s.gruplar).toEqual([]);
+  });
+
+  it("ortak donem varsa YALNIZCA o donemin icerikleriyle karsilastirir", () => {
+    const s = ctaSecimi([
+      ...ic("2025 H1", true, 10), ...ic("2026 H1", true, 40),
+      ...ic("2025 H1", false, 8), ...ic("2026 H1", false, 1),
+    ], 3);
+
+    expect(s.donemler).toEqual(["2025 H1"]);
+    // 2026'daki 40 cagrili icerik KARSILASTIRMAYA GIRMEZ: karsiliginda
+    // yalnizca 1 cagrisiz icerik var.
+    expect(s.gruplar.map((g) => [g.label, g.secili.length])).toEqual([
+      ["Çağrı var", 10],
+      ["Çağrı yok", 8],
+    ]);
+  });
+
+  it("KARSI YON: gruplar ayni donemlere yayilmissa hepsi girer", () => {
+    const s = ctaSecimi([
+      ...ic("2025 H1", true, 10), ...ic("2026 H1", true, 10),
+      ...ic("2025 H1", false, 10), ...ic("2026 H1", false, 10),
+    ], 3);
+    expect(s.donemler).toEqual(["2025 H1", "2026 H1"]);
+    expect(s.gruplar.every((g) => g.secili.length === 20)).toBe(true);
   });
 });

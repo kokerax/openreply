@@ -196,3 +196,45 @@ export function ortakDonemler(
     .filter((d) => (sa.get(d) ?? 0) >= esik && (sb.get(d) ?? 0) >= esik)
     .sort();
 }
+
+
+/** `ctaSecimi` icin gereken en az alan kumesi. */
+export interface CtaIcerik {
+  half: string;
+  hasCta: boolean;
+}
+
+export interface CtaSecimi<T> {
+  /** Karsilastirmanin yapildigi donemler; BOS ise karsilastirma yapilamaz. */
+  donemler: string[];
+  /** Donem esleme sonrasi gruplar. `donemler` bossa bos dizi. */
+  gruplar: Array<{ label: string; secili: T[] }>;
+}
+
+/**
+ * Yorum cagrisi karsilastirmasinin KARARI — donem eslemeli secim.
+ *
+ * Karar rotanin govdesinde degil burada: rotaya gomulu oldugunda donem
+ * filtresini devre disi birakan mutasyon HICBIR testi kirmiyordu, yani
+ * baglanti kanitsizdi. Rota artik yalnizca `secili` gruplari ciziyor.
+ *
+ * Ortak donem yoksa bos doner — "etkisi olculemedi" demektir, "etkisi yok"
+ * DEGIL.
+ */
+export function ctaSecimi<T extends CtaIcerik>(
+  icerikler: ReadonlyArray<T>,
+  enAzKova: number
+): CtaSecimi<T> {
+  const varr = icerikler.filter((p) => p.hasCta);
+  const yok = icerikler.filter((p) => !p.hasCta);
+  const donemler = ortakDonemler(varr, yok, enAzKova);
+  if (donemler.length === 0) return { donemler: [], gruplar: [] };
+  const sec = (g: ReadonlyArray<T>) => g.filter((p) => donemler.includes(p.half));
+  return {
+    donemler,
+    gruplar: [
+      { label: "Çağrı var", secili: sec(varr) },
+      { label: "Çağrı yok", secili: sec(yok) },
+    ],
+  };
+}
