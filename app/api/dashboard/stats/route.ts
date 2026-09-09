@@ -210,7 +210,8 @@ export async function GET(request: NextRequest) {
           ...accountFilter,
         },
         // Reklam/organik kirilimi: originalMediaId dolu = reklam kopyasi.
-        select: { createdAt: true, mediaId: true, originalMediaId: true },
+        // commentId sentetik satirlari ayirt etmek icin (asagi).
+        select: { createdAt: true, mediaId: true, originalMediaId: true, commentId: true },
       }),
     ]);
 
@@ -252,6 +253,12 @@ export async function GET(request: NextRequest) {
     // oldugundan daha organik gosterirdi. Kampanya sayfasindaki ayni kural.
     const sourceSplit = { ad: 0, organic: 0, unknown: 0 };
     for (const row of sentRows) {
+      // SADECE GERCEK YORUMLAR. DmLog e-posta kapisi / link acilisi / DM
+      // tetikleyicisi icin de defter satiri yaziyor ve `commentId`'ye
+      // "emailgate:<igsid>" gibi sentetik anahtar koyuyor. Bunlarin medyasi
+      // HIC OLMAZ; "bilinmiyor" kovasina koymak karti sisiriyordu — 306
+      // "izlenmeyen"in 247'si aslinda yorum bile degildi.
+      if (row.commentId.includes(":")) continue;
       if (row.originalMediaId) sourceSplit.ad += 1;
       else if (row.mediaId) sourceSplit.organic += 1;
       else sourceSplit.unknown += 1;

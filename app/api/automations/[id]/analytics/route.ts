@@ -41,7 +41,7 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     prisma.dmLog.findMany({
       where: { ...dmScope, status: "SENT" },
       // originalMediaId dolu = yorum bir reklam kopyasindan geldi.
-      select: { createdAt: true, mediaId: true, originalMediaId: true },
+      select: { createdAt: true, mediaId: true, originalMediaId: true, commentId: true },
     }),
     prisma.linkClick.findMany({
       where: { workspaceId, automationId: id, createdAt },
@@ -57,10 +57,11 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     dayKeys: dayKeys(range),
     comments,
     sentAt: sentRows.map((r) => r.createdAt),
-    sentSources: sentRows.map((r) => ({
-      mediaId: r.mediaId,
-      originalMediaId: r.originalMediaId,
-    })),
+    // Sentetik defter satirlari (emailgate:/reveal:/dm:) yorum DEGIL; kaynak
+    // kirilimine girerlerse "izlenmeyen" kovasini sisirirler.
+    sentSources: sentRows
+      .filter((r) => !r.commentId.includes(":"))
+      .map((r) => ({ mediaId: r.mediaId, originalMediaId: r.originalMediaId })),
     clicks: clickRows,
     failures: failedRows.map((r) => r.errorMessage),
   });

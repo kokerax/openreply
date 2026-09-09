@@ -38,9 +38,14 @@ type SentRow = {
   createdAt: Date;
   mediaId?: string | null;
   originalMediaId?: string | null;
+  /** Sentetik defter satirlarini ayirt etmek icin (icinde ":" olanlar). */
+  commentId?: string;
 };
 
-function primeHappyPath(sentRows: SentRow[] = []) {
+function primeHappyPath(girdiler: SentRow[] = []) {
+  // Gercek yorum kimlikleri tamamen rakamdir; fixture varsayilani da oyle
+  // olmali, yoksa satirlar yanlislikla "sentetik" sayilir.
+  const sentRows = girdiler.map((r, i) => ({ commentId: `1790000000000000${i}`, ...r }));
   mockWorkspaceId.mockResolvedValue("ws_1");
   mockUserId.mockResolvedValue("user_1");
   mockPrisma.workspace.findUnique.mockResolvedValue({ name: "WS", dmsSentThisPeriod: 0 });
@@ -163,6 +168,25 @@ describe("GET /api/dashboard/stats", () => {
     // Kirilim toplami gonderim sayisiyla TUTMALI.
     const t = d.sourceSplit.ad + d.sourceSplit.organic + d.sourceSplit.unknown;
     expect(t).toBe(d.dailyDMs.reduce((a: number, x: { count: number }) => a + x.count, 0));
+  });
+
+  it("SENTETIK defter satirlari kaynak kirilimina GIRMEZ", async () => {
+    // "Not tracked" 306 gorunuyordu ama 247'si emailgate:/reveal:/dm: satiriydi
+    // — yorum bile degil, medyasi HIC olmaz. Kart "yorumlar nereden geldi"
+    // diyor; yorum olmayani saymak sayiyi sisiriyordu.
+    primeHappyPath([
+      { createdAt: new Date("2026-08-02T05:00:00.000Z"), commentId: "17900000001", mediaId: "post", originalMediaId: null },
+      { createdAt: new Date("2026-08-02T06:00:00.000Z"), commentId: "emailgate:123", mediaId: null, originalMediaId: null },
+      { createdAt: new Date("2026-08-02T07:00:00.000Z"), commentId: "reveal:123", mediaId: null, originalMediaId: null },
+    ]);
+
+    const d = (await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json()).data;
+
+    expect(d.sourceSplit).toEqual({ ad: 0, organic: 1, unknown: 0 });
+    // Gunluk grafik TUM gonderimleri saymaya devam eder — kirilim yalnizca
+    // yorumlari anlatir, ikisi ayri sorulardir.
+    const toplamGonderim = d.dailyDMs.reduce((a: number, x: { count: number }) => a + x.count, 0);
+    expect(toplamGonderim).toBe(3);
   });
 
   it("KARSI YON: hepsi organikse reklam sifir", async () => {

@@ -141,7 +141,10 @@ describe("reklam / organik kirilimi", () => {
     });
 
     const { ad, organic, unknown } = out.sourceSplit;
-    expect(ad + organic + unknown).toBe(out.funnel.dmsSent);
+    // Kirilim yalnizca GERCEK YORUMLARI anlatir; gonderim sayisi e-posta
+    // kapisi gibi yorumsuz mesajlari da icerir, o yuzden ASMAZ ama esit
+    // olmak zorunda da degildir.
+    expect(ad + organic + unknown).toBeLessThanOrEqual(out.funnel.dmsSent);
   });
 });
 
