@@ -402,6 +402,13 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commentText,
           commentId,
           matchedKeyword: matchResult.matchedKeyword,
+          // Reklam/organik ayrimi icin ham kimlikler. `originalMediaId` yalniz
+          // yorum bir reklam kopyasindaysa dolu gelir (webhook katmani
+          // media.id ile esit oldugunda undefined birakiyor), yani dolu olmasi
+          // "bu yorum reklamdan geldi" demektir. Bu bilgi bugune kadar is
+          // yukunde gelip gonderim sonrasi kayboluyordu.
+          mediaId,
+          originalMediaId,
           status: "PENDING",
           attempts: job.attemptsMade + 1,
         },
@@ -416,6 +423,15 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           attempts: job.attemptsMade + 1,
           matchedKeyword: matchResult.matchedKeyword,
           errorMessage: null,
+          // Eski kayitlarda bu alanlar bos; is webhook/tarama yolundan
+          // geldiyse doldur. Kurtarma yolu gercek media id'sini BILMEZ
+          // (`mediaId` olarak kampanyanin postId'sini ya da bos dize geciyor),
+          // o yuzden dolu bir degerin uzerine ASLA yazilmiyor ve bos gelen
+          // deger yok sayiliyor — yoksa reklam kaydi organige donerdi.
+          ...(mediaId && !existingLog.mediaId ? { mediaId } : {}),
+          ...(originalMediaId && !existingLog.originalMediaId
+            ? { originalMediaId }
+            : {}),
         },
       });
     }

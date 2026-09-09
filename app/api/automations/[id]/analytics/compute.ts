@@ -15,6 +15,15 @@ export interface AnalyticsInputs {
   comments: number;
   /** createdAt of each SENT DmLog in range. */
   sentAt: Date[];
+  /**
+   * Her gonderimin ham medya kimlikleri. Uc durum AYRI tutulur:
+   *   mediaId null                        -> bilinmiyor (alan yazilmadan onceki kayit)
+   *   mediaId dolu, originalMediaId null  -> organik
+   *   originalMediaId dolu                -> reklam kopyasi
+   * Eski kayitlari "organik" saymak kirilimi sessizce yanlis gosterirdi;
+   * "bilinmiyor" bu yuzden gorunur bir kova.
+   */
+  sentSources?: { mediaId: string | null; originalMediaId: string | null }[];
   /** One entry per LinkClick in range. `ipHash` tekil tiklayan icin. */
   clicks: {
     createdAt: Date;
@@ -42,6 +51,11 @@ export interface CampaignAnalytics {
     clicksExceedSends: boolean;
   };
   daily: { date: string; sent: number; clicks: number }[];
+  /**
+   * Gonderimlerin kaynagi. `unknown`, alan yazilmadan onceki kayitlar —
+   * bilerek gorunur, cunku onlari organige saymak kirilimi carpitirdi.
+   */
+  sourceSplit: { ad: number; organic: number; unknown: number };
   referrers: { referrer: string; count: number }[];
   devices: { kind: DeviceKind; count: number }[];
   failures: { reason: string; count: number }[];
@@ -158,7 +172,20 @@ export function buildCampaignAnalytics(input: AnalyticsInputs): CampaignAnalytic
     }
   }
 
+  // Reklam / organik / bilinmiyor. Ucu ayri; "bilinmiyor"u organige katmak
+  // gecmisi oldugundan daha organik gosterirdi.
+  const sourceSplit = { ad: 0, organic: 0, unknown: 0 };
+  for (const s of input.sentSources ?? []) {
+    if (s.originalMediaId) sourceSplit.ad += 1;
+    else if (s.mediaId) sourceSplit.organic += 1;
+    else sourceSplit.unknown += 1;
+  }
+  // sentSources hic verilmediyse her gonderim "bilinmiyor" sayilir; sessizce
+  // sifir gostermek "hic reklam yok" gibi okunurdu.
+  if (!input.sentSources) sourceSplit.unknown = dmsSent;
+
   return {
+    sourceSplit,
     funnel: {
       comments: input.comments,
       dmsSent,

@@ -18,11 +18,11 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts          Account[]
-  sessions          Session[]
-  ownedWorkspaces   Workspace[]       @relation("WorkspaceOwner")
-  workspaceMembers  WorkspaceMember[]
-  sentInvitations   WorkspaceInvitation[] @relation("WorkspaceInvitationsSent")
+  accounts         Account[]
+  sessions         Session[]
+  ownedWorkspaces  Workspace[]           @relation("WorkspaceOwner")
+  workspaceMembers WorkspaceMember[]
+  sentInvitations  WorkspaceInvitation[] @relation("WorkspaceInvitationsSent")
 }
 
 model Account {
@@ -126,22 +126,22 @@ model WorkspaceInvitation {
 }
 
 model InstagramAccount {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   workspaceId       String
-  instagramId       String   @unique
+  instagramId       String    @unique
   username          String
   name              String?
   accessToken       String
   tokenExpiresAt    DateTime?
-  webhookSubscribed Boolean  @default(false)
-  connectedAt       DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  webhookSubscribed Boolean   @default(false)
+  connectedAt       DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  automations Automation[]
-  dmLogs      DmLog[]
-  leads       Lead[]
-  linkClicks  LinkClick[]
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automations       Automation[]
+  dmLogs            DmLog[]
+  leads             Lead[]
+  linkClicks        LinkClick[]
   followerSnapshots FollowerSnapshot[]
 
   @@index([workspaceId])
@@ -168,50 +168,50 @@ model FollowerSnapshot {
 }
 
 model Automation {
-  id                 String   @id @default(cuid())
+  id                 String @id @default(cuid())
   workspaceId        String
   instagramAccountId String
 
-  name           String
-  goal           String?
-  postId         String?
-  postUrl        String?
-  pendingNextReel Boolean @default(false)
-  matchAnyPost   Boolean @default(false)
-  keywords       String[]
-  matchAnyWord   Boolean @default(false)
+  name                    String
+  goal                    String?
+  postId                  String?
+  postUrl                 String?
+  pendingNextReel         Boolean  @default(false)
+  matchAnyPost            Boolean  @default(false)
+  keywords                String[]
+  matchAnyWord            Boolean  @default(false)
   // Also fire this campaign when someone sends a DM whose text matches the
   // keywords above. Independent of the post trigger — a DM has no media, so
   // postId / matchAnyPost do not apply to it.
-  dmTriggerEnabled Boolean @default(false)
-  dmMessage      String
-  openingDmEnabled     Boolean @default(false)
-  openingDmMessage     String?
-  openingDmButtonLabel String?
-  linkButtonLabel      String?
+  dmTriggerEnabled        Boolean  @default(false)
+  dmMessage               String
+  openingDmEnabled        Boolean  @default(false)
+  openingDmMessage        String?
+  openingDmButtonLabel    String?
+  linkButtonLabel         String?
   /// Varsayilan ACIK: kullanici kurali — takip etmeyene link gonderilmez.
-  requireFollow           Boolean @default(true)
+  requireFollow           Boolean  @default(true)
   followPromptMessage     String?
   followPromptButtonLabel String?
-  followUpEnabled Boolean @default(false)
-  followUpMessage String?
+  followUpEnabled         Boolean  @default(false)
+  followUpMessage         String?
   // Minutes to wait after the link is delivered before sending the follow-up.
   // 0 sends it right away.
-  followUpDelayMinutes Int @default(0)
-  publicReplyEnabled Boolean @default(false)
-  publicReplyMessage String?
-  publicReplyMessages String[] @default([])
-  isActive       Boolean @default(true)
-  wholeWordMatch Boolean @default(true)
+  followUpDelayMinutes    Int      @default(0)
+  publicReplyEnabled      Boolean  @default(false)
+  publicReplyMessage      String?
+  publicReplyMessages     String[] @default([])
+  isActive                Boolean  @default(true)
+  wholeWordMatch          Boolean  @default(true)
 
   /// E-posta kapisi: link gonderilmeden ONCE kisiden e-posta adresi istenir.
   /// Kisi DM'e adresini yazinca Lead kaydi olusur ve link o zaman gider.
-  emailGateEnabled Boolean @default(false)
-  emailPromptMessage String?
+  emailGateEnabled    Boolean @default(false)
+  emailPromptMessage  String?
   emailInvalidMessage String?
-  emailThanksMessage String?
-  reportShareSlug    String? @unique
-  reportShareEnabled Boolean @default(true)
+  emailThanksMessage  String?
+  reportShareSlug     String? @unique
+  reportShareEnabled  Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -231,14 +231,14 @@ model Automation {
 /// E-posta kapisindan toplanan adresler. Kisi basina kampanya basina TEK kayit;
 /// ayni kisi tekrar yazarsa adres guncellenir, mukerrer satir olusmaz.
 model Lead {
-  id                 String   @id @default(cuid())
+  id                 String @id @default(cuid())
   workspaceId        String
   automationId       String
   instagramAccountId String
 
-  igsid    String
-  username String?
-  email    String
+  igsid      String
+  username   String?
+  email      String
   /// Adresin geldigi ham mesaj — yanlis ayristirma sikayetinde kanit.
   sourceText String?
 
@@ -264,20 +264,29 @@ model DmLog {
   /// sessizce bozulacak bir filtreye guvenmek istemiyoruz.
   isBackfill Boolean @default(false)
 
-  id                 String     @id @default(cuid())
+  id                 String @id @default(cuid())
   workspaceId        String
   automationId       String
   instagramAccountId String
 
-  commenterId   String
-  commenterName String?
-  commentText   String
-  commentId     String
+  commenterId    String
+  commenterName  String?
+  commentText    String
+  commentId      String
   matchedKeyword String?
-  status        DmStatus @default(PENDING)
-  attempts      Int      @default(0)
-  dmSentAt      DateTime?
-  errorMessage  String?
+
+  /// Yorumun uzerinde oldugu medya. Reklamda bu, reklamin KENDI media id'si.
+  mediaId         String?
+  /// Yalnizca yorum bir reklam kopyasindaysa dolu: reklamin turetildigi asil
+  /// gonderinin id'si (webhook `media.original_media_id`; esit oldugunda
+  /// webhook katmani zaten undefined birakiyor). Dolu olmasi = REKLAM.
+  /// Turetilmis bir `isAd` bayragi yerine ham kimlikler tutuluyor: bayrak
+  /// siniflandirma kurali degisince bayatlar, kimlikler bayatlamaz.
+  originalMediaId String?
+  status          DmStatus  @default(PENDING)
+  attempts        Int       @default(0)
+  dmSentAt        DateTime?
+  errorMessage    String?
 
   // The public comment reply is delivered independently of the DM, so its
   // outcome is tracked separately. publicReplySentAt makes it idempotent across
@@ -297,6 +306,8 @@ model DmLog {
   @@index([automationId])
   @@index([instagramAccountId])
   @@index([status])
+  /// Reklam/organik kirilimi kampanya + tarih araliginda sorgulaniyor.
+  @@index([automationId, originalMediaId])
 }
 
 // Every comment the system has seen, from either the webhook or the polling
@@ -358,14 +369,14 @@ model LinkClick {
 }
 
 model WebhookEvent {
-  id          String        @id @default(cuid())
-  workspaceId String?
-  object      String?
-  payload     Json
-  status      WebhookStatus @default(PENDING)
+  id           String        @id @default(cuid())
+  workspaceId  String?
+  object       String?
+  payload      Json
+  status       WebhookStatus @default(PENDING)
   errorMessage String?
-  createdAt   DateTime      @default(now())
-  processedAt DateTime?
+  createdAt    DateTime      @default(now())
+  processedAt  DateTime?
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
@@ -374,13 +385,13 @@ model WebhookEvent {
 }
 
 model OperationalEvent {
-  id          String                @id @default(cuid())
+  id          String                 @id @default(cuid())
   workspaceId String?
   source      OperationalEventSource
-  level       OperationalEventLevel @default(INFO)
+  level       OperationalEventLevel  @default(INFO)
   message     String
   payload     Json?
-  createdAt   DateTime              @default(now())
+  createdAt   DateTime               @default(now())
   resolvedAt  DateTime?
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
@@ -451,7 +462,7 @@ model QueueJob {
   status QueueJobStatus @default(PENDING)
 
   /// BullMQ'daki jobId'nin karsiligi: ayni anahtarla ikinci ekleme yok sayilir.
-  dedupeKey String? @unique
+  dedupeKey String?  @unique
   /// BullMQ'daki `delay` bunun uzerinden ifade edilir.
   runAt     DateTime @default(now())
 

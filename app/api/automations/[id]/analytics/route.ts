@@ -40,7 +40,8 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     prisma.dmLog.count({ where: dmScope }),
     prisma.dmLog.findMany({
       where: { ...dmScope, status: "SENT" },
-      select: { createdAt: true },
+      // originalMediaId dolu = yorum bir reklam kopyasindan geldi.
+      select: { createdAt: true, mediaId: true, originalMediaId: true },
     }),
     prisma.linkClick.findMany({
       where: { workspaceId, automationId: id, createdAt },
@@ -56,6 +57,10 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     dayKeys: dayKeys(range),
     comments,
     sentAt: sentRows.map((r) => r.createdAt),
+    sentSources: sentRows.map((r) => ({
+      mediaId: r.mediaId,
+      originalMediaId: r.originalMediaId,
+    })),
     clicks: clickRows,
     failures: failedRows.map((r) => r.errorMessage),
   });

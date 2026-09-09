@@ -72,6 +72,79 @@ describe("topCounts", () => {
   });
 });
 
+describe("reklam / organik kirilimi", () => {
+  const taban = {
+    dayKeys: ["2026-08-01"],
+    comments: 3,
+    clicks: [],
+    failures: [],
+  };
+  const G = (n: number) => Array.from({ length: n }, () => D("2026-08-01T01:00:00Z"));
+
+  it("originalMediaId dolu olani REKLAM sayar", () => {
+    const out = buildCampaignAnalytics({
+      ...taban,
+      sentAt: G(3),
+      sentSources: [
+        { mediaId: "reklam_1", originalMediaId: "asil_post" },
+        { mediaId: "reklam_1", originalMediaId: "asil_post" },
+        { mediaId: "asil_post", originalMediaId: null },
+      ],
+    });
+
+    expect(out.sourceSplit).toEqual({ ad: 2, organic: 1, unknown: 0 });
+  });
+
+  it("KARSI YON: hepsi organikse reklam sifir", () => {
+    const out = buildCampaignAnalytics({
+      ...taban,
+      sentAt: G(2),
+      sentSources: [
+        { mediaId: "post", originalMediaId: null },
+        { mediaId: "post", originalMediaId: null },
+      ],
+    });
+
+    expect(out.sourceSplit).toEqual({ ad: 0, organic: 2, unknown: 0 });
+  });
+
+  it("alan yazilmadan onceki kayitlari ORGANIGE SAYMAZ", () => {
+    // Bu en kritik assert: eski kayitlari organik saymak gecmisi oldugundan
+    // daha organik gosterir ve reklamin katkisini gizler.
+    const out = buildCampaignAnalytics({
+      ...taban,
+      sentAt: G(2),
+      sentSources: [
+        { mediaId: null, originalMediaId: null },
+        { mediaId: "post", originalMediaId: null },
+      ],
+    });
+
+    expect(out.sourceSplit).toEqual({ ad: 0, organic: 1, unknown: 1 });
+  });
+
+  it("kaynak hic verilmezse hepsi 'bilinmiyor' olur, sifir reklam DEGIL", () => {
+    const out = buildCampaignAnalytics({ ...taban, sentAt: G(4) });
+
+    expect(out.sourceSplit).toEqual({ ad: 0, organic: 0, unknown: 4 });
+  });
+
+  it("kirilim toplami gonderim sayisini asmaz ve tutar", () => {
+    const out = buildCampaignAnalytics({
+      ...taban,
+      sentAt: G(3),
+      sentSources: [
+        { mediaId: "r", originalMediaId: "p" },
+        { mediaId: "p", originalMediaId: null },
+        { mediaId: null, originalMediaId: null },
+      ],
+    });
+
+    const { ad, organic, unknown } = out.sourceSplit;
+    expect(ad + organic + unknown).toBe(out.funnel.dmsSent);
+  });
+});
+
 describe("tekil tiklama ve durust CTR", () => {
   const T = (saat: number, ip: string | null) => ({
     createdAt: D(`2026-08-01T0${saat}:00:00Z`),

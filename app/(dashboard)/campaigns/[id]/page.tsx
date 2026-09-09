@@ -88,6 +88,7 @@ interface CampaignAnalytics {
     clicksExceedSends: boolean;
   };
   daily: { date: string; sent: number; clicks: number }[];
+  sourceSplit: { ad: number; organic: number; unknown: number };
   referrers: { referrer: string; count: number }[];
   devices: { kind: "mobile" | "desktop" | "other"; count: number }[];
   failures: { reason: string; count: number }[];
@@ -711,6 +712,80 @@ function InsightsPanel({ campaignId }: { campaignId: string }) {
               }
             />
           </div>
+
+          {/* Reklam / organik kirilimi.
+              Bu bilgi bugune kadar hicbir yerde tutulmuyordu: is yukunde
+              geliyor, gonderim sonrasi kayboluyordu. `unknown` kovasi
+              BILEREK gorunur — alan yazilmadan onceki kayitlari organige
+              saymak gecmisi oldugundan daha organik gosterirdi. */}
+          {data.funnel.dmsSent > 0 && (
+            <div className="panel p-4 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-foreground">
+                  Where the comments came from
+                </h2>
+                {data.sourceSplit.unknown > 0 && (
+                  <span className="pill pill-muted">
+                    {data.sourceSplit.unknown} not tracked yet
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                A comment on a boosted post arrives with the ad&apos;s own media
+                id; that is what separates ad from organic here.
+              </p>
+
+              {(() => {
+                const { ad, organic, unknown } = data.sourceSplit;
+                const bilinen = ad + organic;
+                const segmentler = [
+                  { etiket: "Ad", deger: ad, sinif: "bg-accent" },
+                  { etiket: "Organic", deger: organic, sinif: "bg-success" },
+                  { etiket: "Not tracked", deger: unknown, sinif: "bg-border" },
+                ].filter((s) => s.deger > 0);
+                const toplam = ad + organic + unknown;
+
+                return (
+                  <>
+                    <div className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full bg-surface">
+                      {segmentler.map((s) => (
+                        <div
+                          key={s.etiket}
+                          className={s.sinif}
+                          style={{ width: `${(s.deger / toplam) * 100}%` }}
+                          title={`${s.etiket}: ${s.deger}`}
+                        />
+                      ))}
+                    </div>
+                    <dl className="mt-4 grid grid-cols-3 gap-4">
+                      {[
+                        { etiket: "Ad", deger: ad, nokta: "bg-accent" },
+                        { etiket: "Organic", deger: organic, nokta: "bg-success" },
+                        { etiket: "Not tracked", deger: unknown, nokta: "bg-border" },
+                      ].map((s) => (
+                        <div key={s.etiket}>
+                          <dt className="flex items-center gap-2 text-xs text-muted">
+                            <span className={`h-2 w-2 rounded-full ${s.nokta}`} />
+                            {s.etiket}
+                          </dt>
+                          <dd className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                            {s.deger}
+                            {/* Yuzde YALNIZCA bilinenler uzerinden: paydaya
+                                "bilinmiyor"u katmak uydurma bir oran uretir. */}
+                            {s.etiket !== "Not tracked" && bilinen > 0 && (
+                              <span className="ml-1.5 text-xs font-normal text-muted">
+                                {Math.round((s.deger / bilinen) * 100)}% of tracked
+                              </span>
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Daily sent vs clicks */}
           <div className="panel p-4 sm:p-6">
