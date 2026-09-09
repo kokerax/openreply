@@ -503,9 +503,26 @@ export interface InstagramParticipant {
 export interface InstagramMessage {
   id: string;
   created_time?: string;
+  /** Meta bunu YALNIZCA duz metin mesajlarda dolduruyor. */
   message?: string;
   from?: InstagramParticipant;
   to?: { data: InstagramParticipant[] };
+  /**
+   * Butonlu mesajlarin ASIL metni burada: `generic_template.title`.
+   * Istemezsek kampanya DM'leri panelde "(no text)" gorunuyordu.
+   */
+  attachments?: {
+    data?: Array<{
+      generic_template?: { title?: string; cta?: Array<{ title?: string }> };
+      image_data?: unknown;
+      video_data?: unknown;
+      file_url?: string;
+      type?: string;
+    }>;
+  };
+  /** Kisi bize bir gonderi/reel paylastiysa. */
+  shares?: { data?: Array<{ link?: string }> };
+  story?: { link?: string };
 }
 
 export interface InstagramConversation {
@@ -528,7 +545,9 @@ export async function getConversations(
   url.searchParams.set("platform", "instagram");
   url.searchParams.set(
     "fields",
-    "participants,updated_time,messages.limit(1){message,from,created_time}"
+    // `attachments` ve `shares` OLMADAN butonlu mesajlar ve gonderi
+    // paylasimlari bos metin olarak geliyor (bkz. lib/meta/mesaj-onizleme.ts).
+    "participants,updated_time,messages.limit(1){message,from,created_time,attachments,shares,story}"
   );
   url.searchParams.set("limit", "50");
   url.searchParams.set("access_token", accessToken);
@@ -547,7 +566,10 @@ export async function getConversationMessages(
   conversationId: string
 ): Promise<InstagramMessage[]> {
   const url = new URL(`${instagramGraphBase()}/${conversationId}`);
-  url.searchParams.set("fields", "messages{id,created_time,from,to,message}");
+    url.searchParams.set(
+    "fields",
+    "messages{id,created_time,from,to,message,attachments,shares,story}"
+  );
   url.searchParams.set("access_token", accessToken);
 
   const response = await fetch(url.toString());

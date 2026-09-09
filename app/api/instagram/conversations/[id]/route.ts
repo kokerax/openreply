@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mesajOnizlemesi } from "@/lib/meta/mesaj-onizleme";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
 import { getConversationMessages, MetaApiError } from "@/lib/meta/client";
@@ -49,7 +50,9 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     const messages: ThreadMessage[] = raw
       .map((m) => ({
         id: m.id,
-        text: m.message ?? "",
+        // Sohbet govdesinde de ayni kural: butonlu mesaj ve gonderi
+        // paylasimi bos gorunmemeli.
+        text: mesajOnizlemesi(m),
         fromMe: m.from?.id === account.instagramId,
         fromUsername: m.from?.username ?? null,
         createdTime: m.created_time ?? null,

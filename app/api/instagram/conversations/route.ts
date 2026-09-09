@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mesajOnizlemesi } from "@/lib/meta/mesaj-onizleme";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
 import {
@@ -66,7 +67,9 @@ export async function GET(request: NextRequest) {
         updatedTime: c.updated_time ?? null,
         lastMessage: last
           ? {
-              text: last.message ?? "",
+              // Butonlu mesajin metni `attachments` icinde; duz `message`
+              // okumak kampanya DM'lerini "(no text)" gosteriyordu.
+              text: mesajOnizlemesi(last),
               fromMe: last.from?.id === account.instagramId,
               createdTime: last.created_time ?? null,
             }
