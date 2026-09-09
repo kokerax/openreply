@@ -4,8 +4,13 @@ import "./globals.css";
 import { ThemeScript } from "@/components/theme";
 import { ToastProvider } from "@/components/toast";
 import { ConfirmProvider } from "@/components/confirm-dialog";
+import { getBaseUrl } from "@/lib/env";
 
 export const metadata: Metadata = {
+  // metadataBase yokken Next, og:url ve canonical'i GORELI yaziyordu
+  // ("/manychat-alternative"). Facebook/LinkedIn kazuyicilari goreli URL'i
+  // cozemez; paylasim kartlari bos cikiyordu.
+  metadataBase: new URL(getBaseUrl()),
   title: "OpenReply - Open source Instagram comment-to-DM automation",
   description:
     "A free, self-hosted ManyChat alternative. Send an Instagram DM automatically when someone comments a keyword on your post or reel, using the official Meta API.",

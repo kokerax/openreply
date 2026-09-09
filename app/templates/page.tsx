@@ -14,11 +14,21 @@ export const metadata: Metadata = {
     "Instagram DM automation templates",
     "Manychat alternative templates",
   ],
+  alternates: { canonical: "/templates" },
+  openGraph: {
+    title: "Instagram Comment to DM Templates - OpenReply",
+    description:
+      "Ready-to-launch Instagram comment-to-DM campaign templates for products, lead magnets, real estate, fitness, restaurants, events, and creators.",
+    url: "/templates",
+  },
 };
 
 export default function TemplatesPage() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    // `dark` sabit — sayfanin kendi sinifları (text-white, bg-zinc-*) tema
+    // belirteci degil sabit koyu renk; kapsayici temaya uyarsa acik temada
+    // beyaz uzerine beyaz yazi cikiyor.
+    <main className="dark min-h-screen bg-background text-foreground">
       <PublicSiteHeader active="templates" />
 
       <section className="border-b border-white/10 bg-zinc-950/55">

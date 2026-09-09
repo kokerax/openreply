@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { DemoNotice } from "@/components/demo-notice";
+import { CAMPAIGN_TEMPLATES } from "@/lib/templates/campaign-templates";
 
 export const metadata: Metadata = {
   title: "OpenReply - Open source Instagram comment-to-DM automation",
@@ -479,6 +480,89 @@ export default async function Home() {
             >
               View on GitHub
             </a>
+          </div>
+        </div>
+      </section>
+
+      {/* Ic link kati.
+          Bu blok eklenene kadar ana sayfadaki TEK ic link `/login`'di: dort
+          pazarlama sayfasi ve sekiz sablon sayfasi hicbir yerden link
+          almiyordu, yani crawler onlara ulasamiyordu. sitemap.xml adresi
+          bildirir, ic link ise onemi tasir; ikisi birlikte gerekir. */}
+      <section className="border-t border-zinc-200 py-12">
+        <div className="mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8">
+          <div className="grid gap-8 sm:grid-cols-3">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-500">
+                Compare
+              </h2>
+              <ul className="mt-3 space-y-2 text-sm">
+                <li>
+                  <Link href="/manychat-alternative" className="text-zinc-600 transition hover:text-zinc-900">
+                    Manychat alternative
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/comment-link-automation" className="text-zinc-600 transition hover:text-zinc-900">
+                    Instagram comment link automation
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/instagram-dm-automation-agencies" className="text-zinc-600 transition hover:text-zinc-900">
+                    DM automation for agencies
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-500">
+                Templates
+              </h2>
+              <ul className="mt-3 space-y-2 text-sm">
+                <li>
+                  <Link href="/templates" className="text-zinc-600 transition hover:text-zinc-900">
+                    All campaign templates
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/instagram-comment-to-dm-templates" className="text-zinc-600 transition hover:text-zinc-900">
+                    Comment-to-DM template guide
+                  </Link>
+                </li>
+                {CAMPAIGN_TEMPLATES.slice(0, 3).map((template) => (
+                  <li key={template.slug}>
+                    <Link
+                      href={`/templates/${template.slug}`}
+                      className="text-zinc-600 transition hover:text-zinc-900"
+                    >
+                      {template.title}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-500">
+                Legal
+              </h2>
+              <ul className="mt-3 space-y-2 text-sm">
+                <li>
+                  <Link href="/privacy" className="text-zinc-600 transition hover:text-zinc-900">
+                    Privacy policy
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/terms" className="text-zinc-600 transition hover:text-zinc-900">
+                    Terms
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/data-deletion" className="text-zinc-600 transition hover:text-zinc-900">
+                    Data deletion
+                  </Link>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
       </section>

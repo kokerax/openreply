@@ -27,9 +27,44 @@ export interface SeoPageConfig {
   faqs: SeoPageSection[];
 }
 
+/**
+ * FAQPage yapisal verisi.
+ *
+ * Sayfalarda 8 gercek soru-cevap vardi ama duz `<h3>/<p>` olarak basiliyordu;
+ * arama motoru bunlarin SSS oldugunu bilmiyordu. JSON-LD ile ayni icerik
+ * sonuc sayfasinda acilir soru-cevap olarak cikabilir. Yeni metin
+ * UYDURULMUYOR — birebir ayni config kullaniliyor, yoksa isaretleme ile
+ * gorunen icerik ayrisir ve bu Google'in aciktan yasakladigi seydir.
+ */
+function faqYapisalVeri(config: SeoPageConfig) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: config.faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.title,
+      acceptedAnswer: { "@type": "Answer", text: faq.body },
+    })),
+  };
+}
+
 export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    // `dark` BILEREK sabit: bu pazarlama sayfalarinin icindeki 147 sinif
+    // (text-white, bg-zinc-950, border-white/10 ...) tema belirteci degil sabit
+    // koyu renk. Kapsayici `bg-background` ise temaya gore degisiyordu, yani
+    // acik temadaki ziyaretcide beyaz zemin uzerine beyaz baslik ciziliyordu.
+    // Kabugu koyuya kilitlemek ikisini ayni palete getirir.
+    <main className="dark min-h-screen bg-background text-foreground">
+      {config.faqs.length > 0 && (
+        <script
+          type="application/ld+json"
+          // İçerik kendi config'imizden geliyor, kullanıcı girdisi değil.
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(faqYapisalVeri(config)),
+          }}
+        />
+      )}
       <PublicSiteHeader />
 
       <section className="border-b border-white/10 bg-zinc-950/70">

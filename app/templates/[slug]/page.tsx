@@ -39,6 +39,16 @@ export async function generateMetadata({
       template.category,
       template.audience,
     ],
+    // Canonical yoktu: 8 sablon sayfasi hem /templates/<slug> hem de
+    // /instagram-comment-to-dm-templates ile ayni sorguyu kovaliyordu ve
+    // aralarinda iliski tanimli degildi.
+    alternates: { canonical: `/templates/${slug}` },
+    openGraph: {
+      title: `${template.title} - Instagram Comment to DM Template`,
+      description: template.summary,
+      url: `/templates/${slug}`,
+      type: "article",
+    },
   };
 }
 
@@ -55,7 +65,9 @@ export default async function TemplateDetailPage({ params }: TemplatePageProps) 
   ).slice(0, 3);
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    // `dark` sabit — bkz. app/templates/page.tsx: sayfanin sabit koyu sinifları
+    // ile temaya uyan kapsayici acik temada catisiyor.
+    <main className="dark min-h-screen bg-background text-foreground">
       <PublicSiteHeader active="templates" />
 
       <section className="border-b border-white/10 bg-zinc-950/55">
