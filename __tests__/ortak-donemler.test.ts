@@ -6,7 +6,7 @@
  * 28-40K, 2026'da 5-7K. Panel farki cagriya bagliyordu, oysa donem farki.
  */
 import { describe, it, expect } from "vitest";
-import { ctaSecimi, ortakDonemler } from "@/lib/reports/trend-helpers";
+import { cagriVarMi, ctaSecimi, ortakDonemler } from "@/lib/reports/trend-helpers";
 
 const p = (half: string, n: number) => Array.from({ length: n }, () => ({ half }));
 
@@ -51,8 +51,13 @@ describe("ortakDonemler", () => {
 
 
 describe("ctaSecimi — karar saf fonksiyonda", () => {
+  // `hasCta` artik disaridan GELMIYOR; ctaSecimi caption'dan kendisi karar
+  // veriyor, o yuzden fixture gercek metin tasiyor.
   const ic = (half: string, hasCta: boolean, n: number) =>
-    Array.from({ length: n }, () => ({ half, hasCta }));
+    Array.from({ length: n }, () => ({
+      half,
+      caption: hasCta ? "takip et ve yorumlara yaz" : "sadece bir aciklama",
+    }));
 
   it("ortak donem yoksa HIC karsilastirma yapmaz", () => {
     // Canli vaka: cagrisiz icerikler 2025'te, cagrililar her donemde.
@@ -84,5 +89,79 @@ describe("ctaSecimi — karar saf fonksiyonda", () => {
     ], 3);
     expect(s.donemler).toEqual(["2025 H1", "2026 H1"]);
     expect(s.gruplar.every((g) => g.secili.length === 20)).toBe(true);
+  });
+});
+
+
+describe("cagriVarMi — Turkce yazim tercihine bagli OLMAMALI", () => {
+  it("Turkce buyuk I ile yazilan cagri da yakalanir", () => {
+    // JS'in /i bayragi İ (U+0130) harfini i'ye KATLAMAZ: dogru Turkce
+    // yazimla "TAKİP ET VE" cagri YOK sayiliyordu, ASCII "TAKIP ET VE"
+    // ise yakalaniyordu. Ayni cagri iki farkli kovaya dusuyordu.
+    expect(cagriVarMi("TAKİP ET VE YORUM YAZ")).toBe(true);
+    expect(cagriVarMi("TAKIP ET VE")).toBe(true);
+    expect(cagriVarMi("takip et ve")).toBe(true);
+  });
+
+  it("yorumlar cagrisi her yazimda yakalanir", () => {
+    for (const m of ["yorumlara CITY yaz", "YORUMLARA CITY YAZ", "Yorumlara yaz"]) {
+      expect(cagriVarMi(m), m).toBe(true);
+    }
+  });
+
+  it("KARSI YON: cagri OLMAYAN aciklama yine de false", () => {
+    // Normalize asiri genis olsaydi her sey cagri sayilir ve gruplardan
+    // biri bosalirdi.
+    for (const m of [
+      "Masaüstün hiç bu kadar havalı olmamıştı! #YapayZeka #Tasarım",
+      "Arka plan silmek hiç bu kadar kolay olmamıştı!",
+      "",
+    ]) {
+      expect(cagriVarMi(m), m).toBe(false);
+    }
+  });
+
+  it("null/undefined guvenli", () => {
+    expect(cagriVarMi(null)).toBe(false);
+    expect(cagriVarMi(undefined)).toBe(false);
+  });
+});
+
+
+describe("ctaSecimi cagriyi KENDISI belirliyor", () => {
+  it("caption'dan ayirir — disaridan hasCta beklemez", () => {
+    // Mutasyon kanidi: karar rotadayken `hasCta: false` yazan mutasyon 591
+    // testin hicbirini kirmiyordu. Karar artik burada.
+    const s = ctaSecimi(
+      [
+        { half: "2026 H1", caption: "TAKİP ET VE yorumlara yaz" },
+        { half: "2026 H1", caption: "yorumlara CITY yaz" },
+        { half: "2026 H1", caption: "takip et ve" },
+        { half: "2026 H1", caption: "sadece hashtag #ai" },
+        { half: "2026 H1", caption: "baska bir aciklama" },
+        { half: "2026 H1", caption: null },
+      ],
+      3
+    );
+
+    expect(s.sayilar).toEqual({ cagriVar: 3, cagriYok: 3 });
+    expect(s.donemler).toEqual(["2026 H1"]);
+    expect(s.gruplar.map((g) => [g.label, g.secili.length])).toEqual([
+      ["Çağrı var", 3],
+      ["Çağrı yok", 3],
+    ]);
+  });
+
+  it("ortak donem yokken bile SAYILAR raporlanir", () => {
+    // "olculemedi" notu bu sayilari yaziyor; bos donmeleri notu bozardi.
+    const s = ctaSecimi(
+      [
+        { half: "2024 H2", caption: "takip et ve" },
+        { half: "2025 H1", caption: "duz aciklama" },
+      ],
+      3
+    );
+    expect(s.donemler).toEqual([]);
+    expect(s.sayilar).toEqual({ cagriVar: 1, cagriYok: 1 });
   });
 });

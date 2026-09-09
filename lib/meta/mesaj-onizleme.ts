@@ -55,11 +55,21 @@ export function mesajOnizlemesi(m: OnizlenebilirMesaj | null | undefined): strin
   if (duz) return duz;
 
   const ek = m.attachments?.data?.[0];
+  const sablon = ek?.generic_template;
+  const baslik = sablon?.title?.trim();
+  // Butonlu kampanya mesaji: asil metin BURADA.
+  if (baslik) return baslik + butonEtiketi(sablon!);
+
+  // GERCEK ICERIK genel ek etiketini YENER. Ilk surumde `attachments` dali
+  // kosulsuz donuyordu; hem gorsel eki hem gonderi paylasimi tasiyan bir
+  // mesaj "(görsel)" yaziyor ve linki kaybediyordu.
+  const paylasim = m.shares?.data?.[0]?.link?.trim();
+  if (paylasim) return `(gönderi paylaştı) ${paylasim}`;
+
+  const hikaye = m.story?.link?.trim();
+  if (hikaye) return `(hikâye) ${hikaye}`;
+
   if (ek) {
-    const sablon = ek.generic_template;
-    const baslik = sablon?.title?.trim();
-    // Butonlu kampanya mesaji: asil metin BURADA.
-    if (baslik) return baslik + butonEtiketi(sablon!);
     if (sablon) return `(butonlu mesaj)${butonEtiketi(sablon)}`;
     if (ek.image_data) return "(görsel)";
     if (ek.video_data) return "(video)";
@@ -67,12 +77,6 @@ export function mesajOnizlemesi(m: OnizlenebilirMesaj | null | undefined): strin
     if (ek.file_url) return "(dosya)";
     return "(ek)";
   }
-
-  const paylasim = m.shares?.data?.[0]?.link?.trim();
-  if (paylasim) return `(gönderi paylaştı) ${paylasim}`;
-
-  const hikaye = m.story?.link?.trim();
-  if (hikaye) return `(hikâye) ${hikaye}`;
 
   return "";
 }

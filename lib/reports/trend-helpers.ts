@@ -89,6 +89,32 @@ export const CTA_PATTERN = new RegExp(
   "i"
 );
 
+/**
+ * Turkce harfleri desenin bekledigi ASCII bicime indirger.
+ *
+ * JS'in `/i` bayragi `İ` (U+0130) harfini `i`'ye KATLAMAZ: dogru Turkce
+ * yazimla "TAKİP ET VE YORUM YAZ" yazan bir aciklama `CTA_PATTERN`
+ * tarafindan "cagri YOK" sayiliyordu — oysa "TAKIP ET VE" (ASCII I ile)
+ * eslesiyordu. Yani ayni cagri, yalnizca yazim tercihine gore iki farkli
+ * kovaya dusuyordu ve bu kovalar `ctaSecimi`'nin karsilastirdigi gruplar.
+ */
+export function ctaNormalize(metin: string): string {
+  return metin
+    .replace(/İ/g, "i")
+    .replace(/I/g, "i")
+    .replace(/ı/g, "i")
+    .replace(/Ş/g, "s")
+    .replace(/Ğ/g, "g")
+    .replace(/Ü/g, "u")
+    .replace(/Ö/g, "o")
+    .replace(/Ç/g, "c");
+}
+
+/** Aciklamada yorum cagrisi var mi — yazim tercihinden bagimsiz. */
+export function cagriVarMi(caption: string | null | undefined): boolean {
+  return CTA_PATTERN.test(ctaNormalize(caption ?? ""));
+}
+
 export function median(values: number[]): number {
   if (values.length === 0) return 0;
   const s = [...values].sort((a, b) => a - b);
@@ -198,13 +224,22 @@ export function ortakDonemler(
 }
 
 
-/** `ctaSecimi` icin gereken en az alan kumesi. */
+/**
+ * `ctaSecimi` icin gereken en az alan kumesi.
+ *
+ * `hasCta` DISARIDAN GELMIYOR: cagriyi bu modul `caption`dan kendisi
+ * belirliyor. Onceki surumde karar rotadaydi ve rotanin `cagriVarMi`'yi
+ * kullandigini hicbir test kanitlamiyordu — `hasCta: false` yazan mutasyon
+ * 591 testin hicbirini kirmadi. Karar, test edilen fonksiyonun icinde.
+ */
 export interface CtaIcerik {
   half: string;
-  hasCta: boolean;
+  caption?: string | null;
 }
 
 export interface CtaSecimi<T> {
+  /** Cagri tasiyan ve tasimayan icerik sayilari — "olculemedi" notu icin. */
+  sayilar: { cagriVar: number; cagriYok: number };
   /** Karsilastirmanin yapildigi donemler; BOS ise karsilastirma yapilamaz. */
   donemler: string[];
   /** Donem esleme sonrasi gruplar. `donemler` bossa bos dizi. */
@@ -225,12 +260,14 @@ export function ctaSecimi<T extends CtaIcerik>(
   icerikler: ReadonlyArray<T>,
   enAzKova: number
 ): CtaSecimi<T> {
-  const varr = icerikler.filter((p) => p.hasCta);
-  const yok = icerikler.filter((p) => !p.hasCta);
+  const varr = icerikler.filter((p) => cagriVarMi(p.caption));
+  const yok = icerikler.filter((p) => !cagriVarMi(p.caption));
+  const sayilar = { cagriVar: varr.length, cagriYok: yok.length };
   const donemler = ortakDonemler(varr, yok, enAzKova);
-  if (donemler.length === 0) return { donemler: [], gruplar: [] };
+  if (donemler.length === 0) return { sayilar, donemler: [], gruplar: [] };
   const sec = (g: ReadonlyArray<T>) => g.filter((p) => donemler.includes(p.half));
   return {
+    sayilar,
     donemler,
     gruplar: [
       { label: "Çağrı var", secili: sec(varr) },

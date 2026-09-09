@@ -9,7 +9,6 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import {
-  CTA_PATTERN,
   ctaSecimi,
   halfYearLabel,
   localParts,
@@ -61,7 +60,6 @@ interface Post {
   localHour: number;
   half: string;
   captionLength: number;
-  hasCta: boolean;
   /** Days since the previously published post; null for the oldest one. */
   gapDays: number | null;
 }
@@ -219,7 +217,6 @@ export async function GET(request: NextRequest) {
         localHour: local.hour,
         half: halfYearLabel(local),
         captionLength: caption?.length ?? 0,
-        hasCta: CTA_PATTERN.test(caption ?? ""),
         gapDays: null,
       };
     }
@@ -351,8 +348,6 @@ export async function GET(request: NextRequest) {
   // bugunun 5-8 katiydi; panel "cagri koymayinca daha cok yorum geliyor"
   // gibi okunuyordu. Yalnizca HER IKI grupta da yeterli icerik bulunan
   // donemler karsilastiriliyor.
-  const ctaVar = enriched.filter((p) => p.hasCta);
-  const ctaYok = enriched.filter((p) => !p.hasCta);
   const secim = ctaSecimi(enriched, MIN_BUCKET);
   const ctaDonemleri = secim.donemler;
   const cta: TrendCta[] = secim.gruplar
@@ -403,7 +398,7 @@ export async function GET(request: NextRequest) {
   if (cta.length < 2) {
     unmeasured.push(
       ctaDonemleri.length === 0
-        ? `Yorum çağrısı: çağrılı (${ctaVar.length}) ve çağrısız (${ctaYok.length}) ` +
+        ? `Yorum çağrısı: çağrılı (${secim.sayilar.cagriVar}) ve çağrısız (${secim.sayilar.cagriYok}) ` +
           "içerikler aynı dönemlerden gelmiyor. Hesabın erişimi dönemler arasında " +
           "kat kat değiştiği için ikisini kıyaslamak çağrının değil dönemin " +
           "etkisini ölçerdi — bu yüzden ölçülemedi sayıldı."

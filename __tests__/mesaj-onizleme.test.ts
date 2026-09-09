@@ -98,6 +98,34 @@ describe("diger ek turleri sessizce bos kalmaz", () => {
   });
 });
 
+describe("GERCEK ICERIK genel ek etiketini yener", () => {
+  it("gorsel eki VE gonderi paylasimi varsa LINK gosterilir", () => {
+    // Ilk surumde `attachments` dali kosulsuz donuyordu: mesaj hem gorsel
+    // eki hem paylasim tasidiginda "(görsel)" yazip linki kaybediyordu.
+    const o = mesajOnizlemesi({
+      message: "",
+      attachments: { data: [{ image_data: {} }] },
+      shares: { data: [{ link: "https://instagram.com/reel/X/" }] },
+    });
+    expect(o).toContain("reel/X");
+  });
+
+  it("KARSI YON: paylasim YOKSA ek etiketi yine gosterilir", () => {
+    expect(mesajOnizlemesi({ message: "", attachments: { data: [{ image_data: {} }] } })).toBe(
+      "(görsel)"
+    );
+  });
+
+  it("sablon basligi paylasimdan ONCE gelir", () => {
+    // Butonlu kampanya mesajinin kendi metni her seyi yener.
+    const o = mesajOnizlemesi({
+      ...BUTONLU,
+      shares: { data: [{ link: "https://instagram.com/reel/Y/" }] },
+    });
+    expect(o).toContain("teşekkürler");
+  });
+});
+
 describe("bos ve bozuk girdide cokmez", () => {
   it("null/undefined/bos nesne BOS dize dondurur", () => {
     for (const g of [null, undefined, {}, { message: "" }]) {
