@@ -63,6 +63,22 @@ export async function eksikYorumCevaplariniTamamla(
       publicReplySentAt: null,
       createdAt: { gte: new Date(Date.now() - PENCERE_MS) },
       automation: { publicReplyEnabled: true, isActive: true },
+      // SADECE GERCEK YORUMLAR.
+      //
+      // DmLog yalnizca yorumlari tutmuyor: e-posta kapisi, takip kapisi, link
+      // acilisi ve DM tetikleyicisi de kendi defter satirlarini ayni tabloya
+      // yaziyor ve `commentId` alanina "emailgate:<igsid>" gibi SENTETIK bir
+      // anahtar koyuyor. Bunlarin altina yazilacak bir yorum yok.
+      //
+      // Bu filtre olmadan modul her saat 15 sentetik satiri kuyrukluyor,
+      // worker anahtar kelime eslesmedigi icin sessizce atliyor ve is hatasiz
+      // "DONE" oluyordu — yani tur bosa gidiyor, hicbir sey de sikayet
+      // etmiyordu. Olcum: bekleyen sanilan 205 kaydin 205'i sentetikti
+      // (134 reveal, 68 emailgate, 3 dm), gercek yorum SIFIR.
+      //
+      // Gercek Instagram yorum kimlikleri tamamen rakamdir; sentetik olanlarin
+      // hepsinde iki nokta var.
+      commentId: { not: { contains: ":" } },
     },
     include: {
       automation: {

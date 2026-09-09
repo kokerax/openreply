@@ -111,6 +111,19 @@ describe("eksikYorumCevaplariniTamamla", () => {
     expect(jobId).toBe(`yorumcevabi:log1:${new Date().toISOString().slice(0, 10)}`);
   });
 
+  it("SENTETIK defter satirlarini disarida birakir", async () => {
+    // DmLog yalnizca yorumlari tutmuyor: e-posta/takip kapisi ve link acilisi
+    // da ayni tabloya "emailgate:<igsid>" gibi sentetik anahtarlarla yaziyor.
+    // Bunlari kuyruklamak turu bosa harciyordu; worker sessizce atliyor ve is
+    // hatasiz DONE oluyordu.
+    mockPrisma.dmLog.findMany.mockResolvedValue([]);
+
+    await eksikYorumCevaplariniTamamla();
+
+    const w = mockPrisma.dmLog.findMany.mock.calls[0][0].where;
+    expect(w.commentId).toEqual({ not: { contains: ":" } });
+  });
+
   it("bugun DENENMIS kayitlari atlayip tavana kadar ILERLER", async () => {
     // Asil kusur buydu: tavan kadar cekip gunluk anahtarla eleyince her tur
     // AYNI en yeni 15 kayit geliyor, ilk turdan sonra gun boyu SIFIR is
