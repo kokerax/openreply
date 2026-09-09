@@ -33,12 +33,20 @@ interface DiagnosticsData {
   webhookEvents: Array<{
     id: string;
     workspaceId: string | null;
+    /** "eslesti" | "kendi-yankisi" | "akis-disi" — bkz. webhook-siniflandirma. */
+    sinif?: "eslesti" | "kendi-yankisi" | "akis-disi";
     object: string | null;
     status: "PENDING" | "PROCESSED" | "FAILED";
     errorMessage: string | null;
     createdAt: string;
     processedAt: string | null;
   }>;
+  /** Uc sinifin adedi; "eslesmedi" tek basina alarm degil. */
+  webhookOzet?: {
+    eslesti: number;
+    "kendi-yankisi": number;
+    "akis-disi": number;
+  };
   dmFailures: Array<{
     id: string;
     status: string;
@@ -860,7 +868,14 @@ export default function DiagnosticsPage() {
       {/* Webhook events */}
       <Section
         title="Webhook events"
-        description="Last 20. Failed rows are red; rows that matched no account are amber."
+        description={
+          diag?.webhookOzet
+            ? `Last 20 · ${diag.webhookOzet.eslesti} handled · ` +
+              `${diag.webhookOzet["kendi-yankisi"]} our own echo · ` +
+              `${diag.webhookOzet["akis-disi"]} outside a campaign flow. ` +
+              `Only red rows are failures — the other two are ignored by design.`
+            : "Last 20. Failed rows are red."
+        }
         actions={
           <label className="flex items-center gap-2 text-xs text-muted">
             Status
@@ -899,16 +914,22 @@ export default function DiagnosticsPage() {
               </thead>
               <tbody>
                 {diag?.webhookEvents.map((event) => {
-                  const unmatched = event.workspaceId === null;
-                  const tone =
-                    event.status === "FAILED" ? "bg-error-soft!" : unmatched ? "bg-warning-soft!" : "";
+                  // ESKIDEN: `workspaceId === null` olan HER satir amber
+                  // "unmatched" idi — son 7 gunde olaylarin %82'si. Operator
+                  // bunu "webhook'lar duşuyor" diye okuyordu. Ikisi tasarim
+                  // geregi islenmez, o yuzden artik amber DEGIL sadece etiketli.
+                  const etiket =
+                    event.sinif === "kendi-yankisi"
+                      ? "our own echo"
+                      : event.sinif === "akis-disi"
+                        ? "outside a flow"
+                        : null;
+                  const tone = event.status === "FAILED" ? "bg-error-soft!" : "";
                   return (
                     <tr key={event.id}>
                       <td className={`${tone} font-medium text-foreground`}>
                         {event.object ?? "Instagram webhook"}
-                        {unmatched && (
-                          <span className="ml-2 text-xs text-warning">unmatched</span>
-                        )}
+                        {etiket && <span className="ml-2 text-xs text-muted">{etiket}</span>}
                       </td>
                       <td className={tone}><WebhookStatusBadge status={event.status} /></td>
                       <td className={`${tone} max-w-sm text-error`} title={event.errorMessage ?? undefined}>

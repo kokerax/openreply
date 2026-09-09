@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  webhookOzeti,
+  webhookSinifi,
+} from "@/lib/ops/webhook-siniflandirma";
 import { getCurrentWorkspaceContext } from "@/lib/workspace-access";
 import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
@@ -44,6 +48,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       dmFailureGroups,
       tokenRefreshFailures,
       operationalEvents,
+      hesaplar,
     ] = await Promise.all([
       getDMQueue().getJobCounts("waiting", "active", "delayed", "failed"),
       getWorkerHealth(),
@@ -65,6 +70,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           errorMessage: true,
           createdAt: true,
           processedAt: true,
+          // Siniflandirma icin: aktoru kim (kendi yankimiz mi, akis disi mi).
+          payload: true,
         },
       }),
       prisma.dmLog.findMany({
@@ -109,7 +116,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           resolvedAt: true,
         },
       }),
+      // Kendi yankimizi ayirt etmek icin: bu calisma alanindaki IG kimlikleri.
+      prisma.instagramAccount.findMany({
+        where: { workspaceId },
+        select: { instagramId: true },
+      }),
     ]);
+
+    const kendiKimlikler = new Set(hesaplar.map((h) => h.instagramId));
 
     return NextResponse.json({
       success: true,
@@ -117,7 +131,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         queueCounts,
         workerHealth,
         workerAlerts,
-        webhookEvents,
+        webhookEvents: webhookEvents.map(({ payload: _p, ...e }) => ({
+          ...e,
+          sinif: webhookSinifi(e.workspaceId, _p, kendiKimlikler),
+        })),
+        // "Eslesmeyen" sayisinin buyuk olmasi tek basina alarm DEGIL: cogu
+        // kendi yankimiz. Ozet uc sinifi ayri yaziyor ki operator olmayan
+        // bir arizayi kovalamasin.
+        webhookOzet: webhookOzeti(
+          webhookEvents.map((e) => ({ workspaceId: e.workspaceId, payload: e.payload })),
+          kendiKimlikler
+        ),
         dmFailures,
         dmFailureGroups: dmFailureGroups.map((g) => ({
           errorMessage: g.errorMessage,
