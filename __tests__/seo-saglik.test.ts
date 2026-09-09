@@ -167,6 +167,29 @@ describe("ucuncu durum: BELIRSIZ", () => {
     expect(durum(s, "sitemap.xml")).toBe("gecti");
   });
 
+  it("TASIMA hatasi 'kaldi' DEGIL 'belirsiz' verir", async () => {
+    // DNS/TLS/timeout dalgalanmasinda "sitemap.xml KALDI" yazmak yanlis
+    // alarmdir: arac "bakamadim" ile "yok"u ayirmali.
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (String(url).endsWith("/sitemap.xml")) throw new Error("ECONNRESET");
+      const yol = new URL(String(url)).pathname;
+      const govde = (SAGLAM as Record<string, string>)[yol];
+      if (govde === undefined) return { ok: false, status: 404, text: async () => "" };
+      return { ok: true, status: 200, text: async () => govde };
+    });
+
+    const s = await seoSagligiOl();
+
+    expect(durum(s, "sitemap.xml")).toBe("belirsiz");
+    // 404 ise (gercekten yok) hala KALDI demeli — iki yon.
+    expect(durum(s, "robots.txt")).toBe("gecti");
+  });
+
+  it("GERCEKTEN yoksa (404) hala 'kaldi' der", async () => {
+    fetchKur({ ...SAGLAM, "/sitemap.xml": undefined });
+    expect(durum(await seoSagligiOl(), "sitemap.xml")).toBe("kaldi");
+  });
+
   it("ag tamamen dusukse cokmez", async () => {
     vi.stubGlobal("fetch", async () => {
       throw new Error("network down");

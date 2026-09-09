@@ -172,6 +172,21 @@ describe("tekil tiklama ve durust CTR", () => {
     expect(out.funnel.clicks).toBe(3); // ham sayim korunuyor
     expect(out.funnel.uniqueClicks).toBe(1);
     expect(out.funnel.ctr).toBe(50); // 1/2, eskiden 100'e kirpilmis 150 idi
+    // Rozet artik CTR ILE AYNI sayiya bakiyor (tekil tiklayan). Burada
+    // 1 tekil < 2 gonderim, yani gosterilen oran carpik DEGIL — rozet yok.
+    // Eskiden ham tiklamaya bakiyordu ve CTR'la tutarsizdi.
+    expect(out.funnel.clicksExceedSends).toBe(false);
+  });
+
+  it("TEKIL tiklayan gonderimi asinca rozet cikar", () => {
+    // Gosterilen oran %100'e kirpilacagi icin "yaklasik" demek dogru.
+    const out = buildCampaignAnalytics({
+      ...taban,
+      sentAt: [D("2026-08-01T01:00:00Z")],
+      clicks: [T(3, "bir"), T(4, "iki"), T(5, "uc")],
+    });
+
+    expect(out.funnel.uniqueClicks).toBe(3);
     expect(out.funnel.clicksExceedSends).toBe(true);
   });
 

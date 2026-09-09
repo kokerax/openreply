@@ -107,7 +107,7 @@ describe("mekanizma atlanamaz", () => {
     const yerler: [string, string][] = [
       ["lib/ops/yorum-cevabi-kurtarma.ts", "SADECE_YORUM"],
       ["app/api/dashboard/stats/route.ts", "sentetikMi("],
-      ["app/api/automations/[id]/analytics/route.ts", "sentetikMi("],
+      ["app/api/automations/[id]/analytics/route.ts", "SADECE_YORUM"],
     ];
     for (const [dosya, beklenen] of yerler) {
       const src = kodu(oku(dosya));
@@ -117,6 +117,21 @@ describe("mekanizma atlanamaz", () => {
         src.includes('includes(":")') ? `${dosya} elle-kopya VAR` : `${dosya} elle-kopya`
       );
     }
+  });
+
+  it("kampanya hunisinin HER ADIMI ayni evrenden sayilir", () => {
+    // Huni "yorum -> DM -> tiklama" anlatiyor. `sentSources` sentetikleri
+    // eliyordu ama `comments` ve `sentAt` elemiyordu: e-posta kapili bir
+    // kampanyada kisi basina 2-3 defter satiri var, payda sisip CTR 2-3 kat
+    // dusuk gorunuyordu.
+    //
+    // Isim aramak yetmez (SADECE_YORUM sabit tanimda da geciyor) — ATAMA
+    // aranıyor.
+    const src = kodu(oku("app/api/automations/[id]/analytics/route.ts"));
+    expect(src).toMatch(/const yorumKapsami = \{[^}]*\.\.\.SADECE_YORUM/);
+    // Yorum sayimi ve SENT sorgusu DAR kapsami kullanmali.
+    expect(src).toMatch(/dmLog\.count\(\{\s*where:\s*yorumKapsami\s*\}\)/);
+    expect(src).toMatch(/where:\s*\{\s*\.\.\.yorumKapsami,\s*status:\s*"SENT"/);
   });
 
   it("nobetci BILINMEYEN onegi alarma cevirir", () => {

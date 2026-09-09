@@ -158,6 +158,8 @@ async function sweepCampaign(
   // Which media this campaign covers: its own post, or the recent feed if it
   // matches any post.
   const mediaIds: string[] = [];
+  /** Reklam kopyasi media id -> turedigi asil gonderi. */
+  const reklamAsli = new Map<string, string>();
   if (automation.postId) {
     mediaIds.push(automation.postId);
     mediaIds.push(...(await adMediaFor(automation.postId)));
@@ -173,7 +175,15 @@ async function sweepCampaign(
     // ulastiramadigi bir reklam yorumu KALICI OLARAK kayboluyordu — guvenlik
     // aginin var olma sebebi olan senaryo, ve hacmin en yuksek oldugu yer.
     // Olcum: son 90 gunde 898 yorum webhook'unun 103'u (%11,5) reklam kopyasi.
-    mediaIds.push(...(await tumReklamMedyalari(account.instagramId)));
+    for (const r of await tumReklamMedyalari(account.instagramId)) {
+      mediaIds.push(r.mediaId);
+      // Hangi reklam kopyasinin hangi asil gonderiden turedigini SAKLA.
+      // Bu olmadan asagidaki enqueue `automation.postId`e bakiyor, bu dalda
+      // postId NULL (dalin kosulu bu), yani `originalMediaId` her zaman
+      // undefined kaliyor ve reklam yorumu ORGANIK olarak kaydediliyordu —
+      // tam olarak bu taramanin var olma sebebi olan kayitlar.
+      reklamAsli.set(r.mediaId, r.originalMediaId);
+    }
   }
   if (mediaIds.length === 0) return stat;
 
@@ -274,10 +284,11 @@ async function sweepCampaign(
         // the ad was made from: without this the worker matches nothing and
         // drops the comment, so the sweep would enqueue it again every five
         // minutes and never deliver it.
-        originalMediaId:
-          automation.postId && mediaId !== automation.postId
-            ? automation.postId
-            : undefined,
+        originalMediaId: asilGonderiyiBelirle(
+          mediaId,
+          reklamAsli,
+          automation.postId
+        ),
         source: "POLLING",
       });
       stat.enqueued += 1;
@@ -312,12 +323,39 @@ async function sweepCampaign(
  * `adMediaFor`'dan farkli olarak hesaba gore DARALTILIYOR: cok hesapli bir
  * calisma alaninda baska hesabin reklamini taramak bosa API cagrisidir.
  */
+/**
+ * Bir yorumun hangi ASIL gonderiden turedigini belirler.
+ *
+ * Iki kaynak var ve SIRA onemli:
+ *  1. `reklamAsli` — webhook gecmisinden bilinen reklam kopyasi -> asil post.
+ *     "Her gonderi" (matchAnyPost) kampanyalarinda TEK kaynak budur.
+ *  2. `automationPostId` — yalnizca gonderiye BAGLI kampanyalarda dolu.
+ *
+ * Ikinci kaynaga tek basina guvenmek bir hataydi: matchAnyPost dalinda
+ * `postId` NULL oldugu icin (dalin kosulu bu) reklam yorumlari
+ * `originalMediaId: undefined` ile kaydediliyor ve ORGANIK sayiliyordu —
+ * tam olarak o taramanin var olma sebebi olan kayitlar.
+ */
+export function asilGonderiyiBelirle(
+  mediaId: string,
+  reklamAsli: Map<string, string>,
+  automationPostId: string | null
+): string | undefined {
+  const webhooktan = reklamAsli.get(mediaId);
+  if (webhooktan) return webhooktan;
+  if (automationPostId && mediaId !== automationPostId) return automationPostId;
+  return undefined;
+}
+
 export async function tumReklamMedyalari(
   instagramAccountId: string
-): Promise<string[]> {
+): Promise<{ mediaId: string; originalMediaId: string }[]> {
   try {
-    const rows = await prisma.$queryRaw<{ mediaId: string | null }[]>`
-      SELECT DISTINCT change->'value'->'media'->>'id' AS "mediaId"
+    const rows = await prisma.$queryRaw<
+      { mediaId: string | null; originalMediaId: string | null }[]
+    >`
+      SELECT DISTINCT change->'value'->'media'->>'id' AS "mediaId",
+             change->'value'->'media'->>'original_media_id' AS "originalMediaId"
       FROM "WebhookEvent" w,
            jsonb_array_elements(w.payload::jsonb->'entry') entry,
            jsonb_array_elements(entry->'changes') change
@@ -327,9 +365,17 @@ export async function tumReklamMedyalari(
         AND change->'value'->'media'->>'original_media_id'
             <> change->'value'->'media'->>'id'
         AND w."createdAt" > ${new Date(Date.now() - REKLAM_PENCERESI_MS)}
+      -- ORDER BY olmadan LIMIT hangi satirin gelecegini BELIRSIZ birakir:
+      -- 15'ten fazla reklam kopyasi olan bir hesapta en yeni reklam kalici
+      -- olarak disarida kalabilirdi.
+      ORDER BY 1 DESC
       LIMIT ${REKLAM_MEDYA_TAVANI}
     `;
-    return rows.map((r) => r.mediaId).filter((id): id is string => Boolean(id));
+    return rows
+      .filter((r): r is { mediaId: string; originalMediaId: string } =>
+        Boolean(r.mediaId && r.originalMediaId)
+      )
+      .map((r) => ({ mediaId: r.mediaId, originalMediaId: r.originalMediaId }));
   } catch {
     // Burada dusmek taramayi durdurmamali: organik gonderiler yine bakilir.
     return [];

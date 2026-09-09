@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
+import { asilGonderiyiBelirle } from "@/lib/polling/comment-reconciler";
 import path from "node:path";
 
 const oku = (p: string) => fs.readFileSync(path.join(process.cwd(), p), "utf8");
@@ -37,7 +38,8 @@ describe("matchAnyPost dali reklam kopyalarini kapsar", () => {
   it("sorgu hesaba gore daraltilir ve tavanlidir", () => {
     const i = src.indexOf("export async function tumReklamMedyalari");
     expect(i).toBeGreaterThan(-1);
-    const fn = src.slice(i, i + 1200);
+    const sonrakiExport = src.indexOf("\nexport ", i + 10);
+    const fn = src.slice(i, sonrakiExport > -1 ? sonrakiExport : src.length);
     // Cok hesapli calisma alaninda baska hesabin reklamini taramak bosa cagri.
     expect(fn).toContain("entry->>'id' = ");
     // Her medya ayri bir yorum API cagrisi; tavan olmadan tur sisebilir.
@@ -48,8 +50,11 @@ describe("matchAnyPost dali reklam kopyalarini kapsar", () => {
   });
 
   it("sorgu hatasi taramayi DURDURMAZ", () => {
+    // Pencereyi sabit uzunlukla degil FONKSIYON SONUNA gore al: fonksiyon
+    // uzayinca sabit pencere `catch`i disarida birakip sahte kirmizi verdi.
     const i = src.indexOf("export async function tumReklamMedyalari");
-    const fn = src.slice(i, i + 1400);
+    const sonrakiExport = src.indexOf("\nexport ", i + 10);
+    const fn = src.slice(i, sonrakiExport > -1 ? sonrakiExport : src.length);
     // Organik gonderiler yine taranmali; burada firlatmak agi tamamen kapatir.
     expect(fn).toContain("catch");
     expect(fn).toMatch(/return \[\]/);
@@ -82,6 +87,37 @@ describe("ucusta olan isi tekrar kuyruklama korumasi", () => {
     const suzmeYeri = src.indexOf("const fresh = needsAction");
     expect(korumaYeri).toBeGreaterThan(-1);
     expect(suzmeYeri).toBeGreaterThan(korumaYeri);
+  });
+});
+
+describe("reklam yorumu ORGANIGE yazilmasin", () => {
+  it("matchAnyPost dalinda (postId NULL) webhook haritasi kullanilir", () => {
+    // Kritik bulgu: bu dalda postId null oldugu icin eski kod her zaman
+    // undefined donuyordu ve reklam yorumu organik sayiliyordu.
+    const harita = new Map([["reklam_kopyasi", "asil_post"]]);
+
+    expect(asilGonderiyiBelirle("reklam_kopyasi", harita, null)).toBe("asil_post");
+  });
+
+  it("KARSI YON: organik gonderi icin undefined doner", () => {
+    const harita = new Map([["reklam_kopyasi", "asil_post"]]);
+
+    expect(asilGonderiyiBelirle("organik_post", harita, null)).toBeUndefined();
+  });
+
+  it("gonderiye BAGLI kampanyada postId yedek kaynak olarak calisir", () => {
+    expect(asilGonderiyiBelirle("reklam_x", new Map(), "asil_post")).toBe("asil_post");
+    // Gonderinin KENDISI icin undefined — kendi kendinin reklami degil.
+    expect(asilGonderiyiBelirle("asil_post", new Map(), "asil_post")).toBeUndefined();
+  });
+
+  it("webhook haritasi postId'den ONCE gelir", () => {
+    // Harita gercek Meta verisi; postId yalnizca kampanya baglantisi.
+    const harita = new Map([["reklam_kopyasi", "gercek_asil"]]);
+
+    expect(asilGonderiyiBelirle("reklam_kopyasi", harita, "kampanya_postu")).toBe(
+      "gercek_asil"
+    );
   });
 });
 

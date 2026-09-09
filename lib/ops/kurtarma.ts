@@ -18,6 +18,7 @@
  */
 import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
+import { SADECE_YORUM } from "@/lib/queue/dmlog-kayit-turu";
 
 /**
  * Instagram'in private reply penceresi 7 gun. 6 gunde kesiyoruz ki is
@@ -67,6 +68,12 @@ export async function bloktanKurtar(
       isBackfill: false,
       createdAt: { gte: new Date(simdi - PENCERE_MS) },
       attempts: { lt: MAX_KURTARMA_DENEMESI },
+      // SADECE GERCEK YORUMLAR. Defter satirlari (`reveal:`, `emailgate:`)
+      // da blok sirasinda `code=368` ile FAILED yaziliyor ve bu WHERE'e
+      // giriyordu; onlari yeniden denemek asla calisamayacak bir cagriya
+      // kota + hiz slotu harciyor ve satirin asil hatasini eziyor.
+      // Olcum (2026-09-09): boyle 1 satir vardi.
+      ...SADECE_YORUM,
       OR: GECICI_HATA_IMZALARI.map((imza) => ({
         errorMessage: { contains: imza },
       })),
@@ -103,6 +110,13 @@ export async function bloktanKurtar(
     // `attempts` once artiyor: kuyruklama basarili olup gonderim yine duserse
     // sayac ilerlemis olur ve kayit MAX_KURTARMA_DENEMESI'nde durur. Ters sira
     // (once kuyrukla, sonra say) blok surerken sonsuz donguye yol acardi.
+    //
+    // UYARI: worker'in hata yolu `attempts: job.attemptsMade + 1` ile MUTLAK
+    // atama yapiyor (`dm-worker.ts:820`) ve bu sayaci DUSUREBILIR. Canli
+    // olcumde tavan yine de calisti (tek aday `attempts: 6`'ya ulasip
+    // elendi), ama garanti bu satirda degil — kaydin hangi hata yolundan
+    // gectigine bagli. Buraya guvenen yeni bir kural yazilacaksa once
+    // olculmeli.
     await prisma.dmLog.update({
       where: { id: kayit.id },
       data: { attempts: { increment: 1 } },

@@ -101,6 +101,18 @@ describe("bloktanKurtar", () => {
     expect(yasSiniriGun).toBeGreaterThan(1);
   });
 
+  it("SENTETIK defter satirlarini kurtarmaya ALMAZ", async () => {
+    // `reveal:`/`emailgate:` satirlari da blok sirasinda code=368 ile FAILED
+    // yaziliyor ve bu WHERE'e giriyordu; yeniden denemek asla calisamayacak
+    // bir cagriya kota + hiz slotu harciyor ve asil hatayi eziyor.
+    mockPrisma.dmLog.findMany.mockResolvedValue([]);
+
+    await bloktanKurtar();
+
+    const w = mockPrisma.dmLog.findMany.mock.calls[0][0].where;
+    expect(w.commentId).toEqual({ not: { contains: ":" } });
+  });
+
   it("sayaci kuyruklamadan ONCE artirir (blok surerse dongu kesilsin)", async () => {
     mockPrisma.dmLog.findMany.mockResolvedValue([kayit()]);
     const sira: string[] = [];

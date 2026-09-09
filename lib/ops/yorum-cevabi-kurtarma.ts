@@ -22,11 +22,21 @@ import { SADECE_YORUM } from "@/lib/queue/dmlog-kayit-turu";
 const PENCERE_MS = 7 * 24 * 3600_000;
 
 /**
- * "Yavas yavas": tur basina tavan. Saatlik cron ile ~15/saat eder; ayni metnin
- * arka arkaya yagmasi Instagram'da spam sinyalidir, varyant havuzu da bu yuzden
- * var. Worker'in kendi hiz siniri (dakikalik 8) bunun ustune biner.
+ * "Yavas yavas": tur basina tavan. Saatlik cron ile ~15/saat eder.
+ *
+ * DIKKAT — worker'in hiz siniri BU YOLU KAPSAMIYOR. Yorum cevabi
+ * `dm-worker.ts:461`'de, `reserveDMSlot` cagrisindan (`:537`) ONCE gidiyor; bu
+ * kayitlarda `needsDm` false oldugu icin `if (!needsDm) continue` (`:486`)
+ * hiz sinirlayiciya hic ulasmiyor. Onceki yorum "worker'in hiz siniri ustune
+ * biner" diyordu, YANLISTI (2026-09-09 incelemesi).
+ *
+ * Drain dakikada 25 is isliyor, yani tavan tek basina 15 cevabin ~1 dakikada
+ * ayni hesaptan cikmasini engellemiyordu. Araligi ISIN KENDISINE gomuyoruz.
  */
 export const YORUM_TUR_TAVANI = 15;
+
+/** Iki cevap arasi asgari aralik. 15 cevap ~45 dakikaya yayilir. */
+const CEVAP_ARALIGI_MS = 3 * 60_000;
 
 /**
  * Aday havuzunu tavanin kac kati cekecegiz. Bugun denenmisleri eleyip
@@ -82,7 +92,12 @@ export async function eksikYorumCevaplariniTamamla(
     },
     include: {
       automation: {
-        select: { name: true, postId: true, publicReplyMessages: true },
+        select: {
+          name: true,
+          postId: true,
+          publicReplyMessages: true,
+          publicReplyMessage: true,
+        },
       },
       instagramAccount: { select: { instagramId: true } },
     },
@@ -102,15 +117,22 @@ export async function eksikYorumCevaplariniTamamla(
     ).map((j) => j.dedupeKey)
   );
 
-  const adaylar = havuz
+  // Metinsiz kampanya SLICE'TAN ONCE elenir. Ters sirada yapmak kilitlenme
+  // uretiyordu: en yeni 15 aday metinsiz bir kampanyaya aitse `uygun` bos
+  // kaliyor, o kayitlar hic kuyruklanmadigi icin gunluk anahtar da almiyor,
+  // ve ertesi tur yine ayni 15 kayit tepede duruyordu.
+  //
+  // `publicReplyMessage` (tekil) de kabul ediliyor: worker ona da dusuyor
+  // (`dm-worker.ts:443-448`), bu modul dusmezse eski kampanyalar kalici
+  // olarak kurtarma disinda kalirdi.
+  const uygun = havuz
     .filter((k) => !bugunDenenen.has(`yorumcevabi:${k.id}:${gun}`))
+    .filter(
+      (k) =>
+        k.automation.publicReplyMessages.length > 0 ||
+        Boolean(k.automation.publicReplyMessage)
+    )
     .slice(0, limit);
-
-  // Metni olmayan kampanyayi kuyruklamak bosuna tur harcar: worker
-  // `replyPool.length > 0` sartini gecemez ve kayit yarin yine aday olur.
-  const uygun = adaylar.filter(
-    (k) => k.automation.publicReplyMessages.length > 0
-  );
 
   const sonuc: YorumCevabiSonucu = {
     aday: uygun.length,
@@ -128,6 +150,7 @@ export async function eksikYorumCevaplariniTamamla(
 
   const queue = getDMQueue();
 
+  let sira = 0;
   for (const kayit of uygun) {
     const eklendi = await queue.add(
       "process-comment",
@@ -144,10 +167,13 @@ export async function eksikYorumCevaplariniTamamla(
         // Gun basina tek deneme: ayni kayit her turda yeniden kuyruklanip
         // yorum bolumune ayni cevabi yagdirmasin.
         jobId: `yorumcevabi:${kayit.id}:${gun}`,
+        // Araligi ISE gomuyoruz — worker'in hiz siniri bu yolu kapsamiyor.
+        delay: sira * CEVAP_ARALIGI_MS,
       }
     );
     // `add` mukerrer anahtarda null doner; o kayit bugun zaten denenmis.
     if (eklendi) {
+      sira += 1;
       sonuc.kuyruklanan += 1;
       sonuc.kampanyalar[kayit.automation.name] =
         (sonuc.kampanyalar[kayit.automation.name] ?? 0) + 1;

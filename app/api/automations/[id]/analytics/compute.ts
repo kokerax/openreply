@@ -192,7 +192,9 @@ export function buildCampaignAnalytics(input: AnalyticsInputs): CampaignAnalytic
       clicks,
       uniqueClicks,
       ctr: calculateCtr(uniqueClicks, dmsSent),
-      clicksExceedSends: dmsSent > 0 && clicks > dmsSent,
+      // CTR `uniqueClicks` uzerinden; rozet de ayni sayiyla tutarli olmali,
+      // yoksa "approximate" etiketi orana bakmayan bir sebeple cikiyordu.
+      clicksExceedSends: dmsSent > 0 && uniqueClicks > dmsSent,
     },
     daily: bucketDaily(
       input.dayKeys,

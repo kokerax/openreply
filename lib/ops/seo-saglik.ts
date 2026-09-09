@@ -62,7 +62,15 @@ export async function seoSagligiOl(): Promise<SeoSaglik> {
 
   // 1) sitemap
   if (!sitemap.ok) {
-    kontroller.push({ ad: "sitemap.xml", durum: "kaldi", detay: `HTTP ${sitemap.durum}` });
+    // `durum: 0` = istek hic tamamlanmadi (DNS/TLS/timeout). Bu "sitemap yok"
+    // DEGIL "bakamadim"dir; kesin basarisizlik demek yanlis alarm uretir.
+    // Sayfadan turetilen kontroller zaten bu ayrimi yapiyordu; sitemap ve
+    // robots yapmiyordu.
+    kontroller.push({
+      ad: "sitemap.xml",
+      durum: sitemap.durum === 0 ? "belirsiz" : "kaldi",
+      detay: sitemap.durum === 0 ? "istek tamamlanmadi" : `HTTP ${sitemap.durum}`,
+    });
   } else {
     const urller = [...sitemap.govde.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
     sitemapUrl = urller.length;
@@ -85,9 +93,17 @@ export async function seoSagligiOl(): Promise<SeoSaglik> {
   // 2) robots
   kontroller.push({
     ad: "robots.txt",
-    durum: robots.ok && /Sitemap:\s*https?:\/\//i.test(robots.govde) ? "gecti" : "kaldi",
+    durum: !robots.ok
+      ? robots.durum === 0
+        ? "belirsiz"
+        : "kaldi"
+      : /Sitemap:\s*https?:\/\//i.test(robots.govde)
+        ? "gecti"
+        : "kaldi",
     detay: !robots.ok
-      ? `HTTP ${robots.durum}`
+      ? robots.durum === 0
+        ? "istek tamamlanmadi"
+        : `HTTP ${robots.durum}`
       : /Sitemap:/i.test(robots.govde)
         ? "sitemap satiri var"
         : "sitemap satiri YOK",

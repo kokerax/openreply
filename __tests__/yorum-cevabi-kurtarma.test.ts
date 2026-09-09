@@ -33,6 +33,7 @@ function kayit(over: Record<string, unknown> = {}) {
       name: "CITY Şehir Promptu",
       postId: null,
       publicReplyMessages: ["DM'den yolladım 🏙️", "Gönderdim! DM kutuna bak 👀"],
+      publicReplyMessage: null,
     },
     instagramAccount: { instagramId: "17841465942418709" },
     ...over,
@@ -122,6 +123,61 @@ describe("eksikYorumCevaplariniTamamla", () => {
 
     const w = mockPrisma.dmLog.findMany.mock.calls[0][0].where;
     expect(w.commentId).toEqual({ not: { contains: ":" } });
+  });
+
+  it("METINSIZ kampanya SLICE'tan ONCE elenir — kilitlenme olmaz", async () => {
+    // Ters sirada (once slice, sonra filtre) en yeni 15 aday metinsiz bir
+    // kampanyaya aitse hicbir sey kuyruklanmiyordu; o kayitlar gunluk anahtar
+    // da almadigi icin ertesi tur yine tepede duruyordu — kalici kilitlenme.
+    const metinsiz = Array.from({ length: 15 }, (_, i) =>
+      kayit({
+        id: `bos${i}`,
+        automation: { name: "Metinsiz", postId: null, publicReplyMessages: [], publicReplyMessage: null },
+      })
+    );
+    const gecerli = Array.from({ length: 5 }, (_, i) => kayit({ id: `iyi${i}` }));
+    mockPrisma.dmLog.findMany.mockResolvedValue([...metinsiz, ...gecerli]);
+
+    const sonuc = await eksikYorumCevaplariniTamamla(15);
+
+    expect(sonuc.kuyruklanan).toBe(5); // eskiden 0 olurdu
+  });
+
+  it("TEKIL publicReplyMessage'i olan eski kampanya da kurtarilir", async () => {
+    // Worker tekil alana da dusuyor (dm-worker.ts:443-448); bu modul
+    // dusmezse eski kampanyalar kalici olarak kurtarma disinda kalirdi.
+    mockPrisma.dmLog.findMany.mockResolvedValue([
+      kayit({
+        automation: {
+          name: "Eski",
+          postId: null,
+          publicReplyMessages: [],
+          publicReplyMessage: "DM'den gönderdim.",
+        },
+      }),
+    ]);
+
+    expect((await eksikYorumCevaplariniTamamla()).kuyruklanan).toBe(1);
+  });
+
+  it("cevaplar ARALIKLI kuyruklanir — worker'in hiz siniri bu yolu KAPSAMIYOR", async () => {
+    // dm-worker.ts:461 yorum cevabini :537'deki reserveDMSlot'tan ONCE
+    // gonderiyor ve :486'daki `if (!needsDm) continue` sinirlayiciya hic
+    // ulasmiyor. Drain dakikada 25 is isliyor: aralik olmadan 15 cevap ayni
+    // dakikada cikardi.
+    mockPrisma.dmLog.findMany.mockResolvedValue(
+      Array.from({ length: 4 }, (_, i) => kayit({ id: `l${i}` }))
+    );
+
+    await eksikYorumCevaplariniTamamla();
+
+    const gecikmeler = mockQueueAdd.mock.calls.map((c) => c[2].delay);
+    expect(gecikmeler[0]).toBe(0);
+    for (let i = 1; i < gecikmeler.length; i++) {
+      expect(gecikmeler[i]).toBeGreaterThan(gecikmeler[i - 1]);
+    }
+    // Son isin gecikmesi anlamli olmali (dakikalar), saniyeler degil.
+    expect(gecikmeler[gecikmeler.length - 1]).toBeGreaterThanOrEqual(3 * 60_000);
   });
 
   it("bugun DENENMIS kayitlari atlayip tavana kadar ILERLER", async () => {
