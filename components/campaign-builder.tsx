@@ -21,6 +21,7 @@ import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview"
 import StatusBadge from "@/components/status-badge";
 import { useToast } from "@/components/toast";
 import { readCache, writeCache } from "@/lib/client-cache";
+import type { CampaignTemplate } from "@/lib/templates/campaign-templates";
 import {
   IMPORT_QUEUE_KEY,
   IMPORT_ACCOUNT_KEY,
@@ -114,6 +115,12 @@ interface LoadedCampaign {
 interface CampaignBuilderProps {
   mode: "new" | "edit";
   campaignId?: string;
+  /**
+   * SEO sablon sayfasindan gelen secim. Kullanici `/templates/<slug>` uzerinden
+   * girise gitti, giris de buraya yonlendirdi; alanlari onden doldurmak o
+   * niyeti tasir. Yalniz BASLANGIC degeri — kullanici her seyi degistirebilir.
+   */
+  template?: CampaignTemplate;
 }
 
 function Section({
@@ -217,7 +224,11 @@ function Toggle({
   );
 }
 
-export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderProps) {
+export default function CampaignBuilder({
+  mode,
+  campaignId,
+  template,
+}: CampaignBuilderProps) {
   const router = useRouter();
   const toast = useToast();
 
@@ -226,13 +237,18 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [name, setName] = useState("");
+  // Sablon geldiyse alanlar onden dolu baslar. `edit` modunda sablon hic
+  // gelmez; yine de mode kontrolu var ki ileride bir cagiran yanlislikla
+  // gecerse kayitli kampanyanin uzerine yazilmasin.
+  const onDolgu = mode === "new" ? template : undefined;
+
+  const [name, setName] = useState(onDolgu?.title ?? "");
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(true);
-  const [goal, setGoal] = useState("");
+  const [goal, setGoal] = useState(onDolgu?.goal ?? "");
   const [wholeWordMatch, setWholeWordMatch] = useState(true);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
@@ -248,7 +264,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [usedPosts, setUsedPosts] = useState<Record<string, string>>({});
 
   const [matchMode, setMatchMode] = useState<MatchMode>("specific");
-  const [keywordText, setKeywordText] = useState("");
+  const [keywordText, setKeywordText] = useState(
+    onDolgu ? onDolgu.keywords.join(", ") : ""
+  );
   const [dmTriggerEnabled, setDmTriggerEnabled] = useState(false);
 
   const [publicReplyEnabled, setPublicReplyEnabled] = useState(false);
@@ -258,7 +276,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [openingDmMessage, setOpeningDmMessage] = useState("");
   const [openingDmButtonLabel, setOpeningDmButtonLabel] = useState("");
 
-  const [dmMessage, setDmMessage] = useState("");
+  const [dmMessage, setDmMessage] = useState(onDolgu?.dmMessage ?? "");
   const [linkOpen, setLinkOpen] = useState(false);
   const [trackedDestinationUrl, setTrackedDestinationUrl] = useState("");
   const [linkButtonLabel, setLinkButtonLabel] = useState("Open link");
@@ -711,6 +729,27 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
 
   return (
     <div className="space-y-6">
+      {/* Sablonla gelindiginde alanlarin neden dolu oldugunu SOYLE. Sessizce
+          dolu bir form, kullaniciya "birileri benim adima secmis" hissi
+          verir ve neyi degistirebilecegini bilemez. */}
+      {onDolgu && (
+        <div className="rounded border border-accent/30 bg-accent/5 px-4 py-3 text-sm">
+          <span className="font-medium text-foreground">
+            Started from the {onDolgu.title} template.
+          </span>{" "}
+          <span className="text-muted">
+            Name, goal, keywords, and the DM are prefilled — edit anything
+            before you save. Typical setup: {onDolgu.setupMinutes} minutes.
+          </span>{" "}
+          <Link
+            href={`/templates/${onDolgu.slug}`}
+            className="font-medium text-accent underline-offset-2 hover:underline"
+          >
+            See the playbook
+          </Link>
+        </div>
+      )}
+
       {importQueue && (
         <div className="rounded border border-accent/30 bg-accent/5 px-4 py-3 text-sm">
           <span className="font-medium text-foreground">
