@@ -10,6 +10,7 @@ import {
 import { decryptToken } from "@/lib/meta/oauth";
 import {
   CTA_PATTERN,
+  ortakDonemler,
   halfYearLabel,
   localParts,
   median,
@@ -343,9 +344,22 @@ export async function GET(request: NextRequest) {
   // CTA is judged on comments-per-like, not on views: the point of asking for
   // a comment is to get comments, and views are set by distribution upstream
   // of anything the caption says.
+  //
+  // DONEM ESLEME: iki grup ayni yariyillardan secilmezse karsilastirma
+  // cagriyi degil DONEMI olcer. Canli veride (2026-09) "cagri yok"un 17
+  // icerigin 15'i 2025'ten geliyordu ve hesabin medyan izlenmesi o donemde
+  // bugunun 5-8 katiydi; panel "cagri koymayinca daha cok yorum geliyor"
+  // gibi okunuyordu. Yalnizca HER IKI grupta da yeterli icerik bulunan
+  // donemler karsilastiriliyor.
+  const ctaVar = enriched.filter((p) => p.hasCta);
+  const ctaYok = enriched.filter((p) => !p.hasCta);
+  const ctaDonemleri = ortakDonemler(ctaVar, ctaYok, MIN_BUCKET);
+  const donemFiltresi = (g: Post[]) =>
+    ctaDonemleri.length ? g.filter((p) => ctaDonemleri.includes(p.half)) : [];
+
   const cta: TrendCta[] = [
-    ["Çağrı var", enriched.filter((p) => p.hasCta)] as const,
-    ["Çağrı yok", enriched.filter((p) => !p.hasCta)] as const,
+    ["Çağrı var", donemFiltresi(ctaVar)] as const,
+    ["Çağrı yok", donemFiltresi(ctaYok)] as const,
   ]
     .map(([label, group]) => {
       const medianLikes = median(group.map((p) => p.likes));
@@ -393,7 +407,12 @@ export async function GET(request: NextRequest) {
   }
   if (cta.length < 2) {
     unmeasured.push(
-      "Yorum çağrısı: iki gruptan biri karşılaştırma için fazla küçük, etkisi ölçülemedi."
+      ctaDonemleri.length === 0
+        ? `Yorum çağrısı: çağrılı (${ctaVar.length}) ve çağrısız (${ctaYok.length}) ` +
+          "içerikler aynı dönemlerden gelmiyor. Hesabın erişimi dönemler arasında " +
+          "kat kat değiştiği için ikisini kıyaslamak çağrının değil dönemin " +
+          "etkisini ölçerdi — bu yüzden ölçülemedi sayıldı."
+        : "Yorum çağrısı: iki gruptan biri karşılaştırma için fazla küçük, etkisi ölçülemedi."
     );
   }
 

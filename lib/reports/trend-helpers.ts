@@ -158,3 +158,41 @@ export function bolgedeGunBasi(timeZone: string, simdi: Date = new Date()): Date
   if (ofset2 !== ofset) sonuc = new Date(yerelGeceYarisi - ofset2);
   return sonuc;
 }
+
+
+/**
+ * Iki grubun ORTAK donemleri — her ikisinde de en az `esik` icerik bulunan
+ * yariyillar.
+ *
+ * ## Neden gerekli
+ *
+ * Yorum cagrisi karsilastirmasi 2026-09'da soyle gorunuyordu:
+ *
+ *   Cagri var  134 icerik  medyan yorum 52  yorum/begeni %20
+ *   Cagri yok   17 icerik  medyan yorum 94  yorum/begeni %31,2
+ *
+ * Yani "cagri koymayinca daha cok yorum geliyor" gibi okunuyordu. Gruplarin
+ * TARIH dagilimina bakinca sebep ortaya cikti: "cagri yok"un 17 icerigin
+ * 15'i 2025'ten, "cagri var" ise 2024-2026'ya yayilmis. Hesabin medyan
+ * izlenmesi 2025'te 28-40K iken 2026'da 5-7K'ya dusmus. Karsilastirma
+ * cagriyi degil DONEMI olcuyordu.
+ *
+ * Gruplar ayni donemlerden secilmezse metrik calisir ama yanlis buyuklugu
+ * olcer — ve panel bunu nedensel bir cumleyle sunar.
+ */
+export function ortakDonemler(
+  a: ReadonlyArray<{ half: string }>,
+  b: ReadonlyArray<{ half: string }>,
+  esik: number
+): string[] {
+  const say = (g: ReadonlyArray<{ half: string }>) => {
+    const m = new Map<string, number>();
+    for (const p of g) m.set(p.half, (m.get(p.half) ?? 0) + 1);
+    return m;
+  };
+  const sa = say(a);
+  const sb = say(b);
+  return [...sa.keys()]
+    .filter((d) => (sa.get(d) ?? 0) >= esik && (sb.get(d) ?? 0) >= esik)
+    .sort();
+}
