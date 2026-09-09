@@ -69,6 +69,117 @@ function rangeLabel(range: { from: string; to: string; days: number } | undefine
   return `${shortDay(range.from)} – ${shortDay(range.to)} · ${range.days} days`;
 }
 
+interface TopPost {
+  mediaId: string;
+  reklam: boolean;
+  dm: number;
+  permalink: string | null;
+  thumbnail: string | null;
+  caption: string | null;
+}
+
+/**
+ * En cok donusturen gonderiler.
+ *
+ * Ayri yukleniyor: her satir icin bir Graph API cagrisi yapiliyor ve ana
+ * ekranin ilk yuklenmesini yavaslatmasi istenmiyor.
+ */
+function TopPostsWidget({
+  accountId,
+  range,
+}: {
+  accountId: string;
+  range: DateRange;
+}) {
+  const [data, setData] = useState<{
+    satirlar: TopPost[];
+    toplamGonderi: number;
+    cozulemeyen: number;
+  } | null>(null);
+  const [yukleniyor, setYukleniyor] = useState(true);
+
+  useEffect(() => {
+    let iptal = false;
+    setYukleniyor(true);
+    const params = rangeToParams(range);
+    if (accountId !== "all") params.set("instagramAccountId", accountId);
+    fetch(`/api/admin/top-posts?${params}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!iptal && j.success) setData(j.data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!iptal) setYukleniyor(false);
+      });
+    return () => {
+      iptal = true;
+    };
+  }, [accountId, range]);
+
+  if (yukleniyor && !data) return null;
+  if (!data || data.satirlar.length === 0) return null;
+
+  const enYuksek = Math.max(...data.satirlar.map((s) => s.dm), 1);
+
+  return (
+    <section className="panel p-4 sm:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="section-title">Posts that convert</h2>
+        {/* Kac birim islendigi HEP yazilir. */}
+        <span className="text-xs text-muted">
+          top {data.satirlar.length} of {data.toplamGonderi} posts
+          {data.cozulemeyen > 0 && ` · ${data.cozulemeyen} not resolvable`}
+        </span>
+      </div>
+      <ul className="mt-4 space-y-2">
+        {data.satirlar.map((p) => (
+          <li key={p.mediaId} className="flex items-center gap-3">
+            {p.thumbnail ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={p.thumbnail}
+                alt=""
+                className="h-10 w-10 shrink-0 rounded object-cover"
+              />
+            ) : (
+              <div className="h-10 w-10 shrink-0 rounded bg-surface-hover" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                {p.permalink ? (
+                  <a
+                    href={p.permalink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate text-sm text-foreground underline-offset-2 hover:underline"
+                  >
+                    {p.caption ?? p.mediaId}
+                  </a>
+                ) : (
+                  <span className="truncate text-sm text-muted">
+                    {p.caption ?? p.mediaId}
+                  </span>
+                )}
+                {p.reklam && <span className="pill pill-accent shrink-0">Ad</span>}
+              </div>
+              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface">
+                <div
+                  className={p.reklam ? "h-full bg-accent" : "h-full bg-success"}
+                  style={{ width: `${(p.dm / enYuksek) * 100}%` }}
+                />
+              </div>
+            </div>
+            <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+              {nf.format(p.dm)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function DashboardPage() {
   const toast = useToast();
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -355,6 +466,13 @@ export default function DashboardPage() {
           <RateLimitWidget compact instagramAccountId={selectedAccountId} />
         </div>
       </div>
+
+      {/* En cok donusturen gonderiler.
+          Kampanyalarin cogu matchAnyPost ile calisiyor: TEK kampanya onlarca
+          gonderiyi kapsiyor, o yuzden kampanya bazinda olcum "hangi reel is
+          yariyor" sorusunu cevaplamiyordu. Ayri yukleniyor cunku her satir
+          bir Graph API cagrisi. */}
+      <TopPostsWidget accountId={selectedAccountId} range={range} />
 
       {/* Keywords + Recent Activity */}
       <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-6">

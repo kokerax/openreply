@@ -830,3 +830,29 @@ export async function debugToken(inputToken: string, accessToken: string) {
   const response = await fetch(url.toString());
   return handleResponse(response);
 }
+
+/**
+ * Bir medyayi kimliginden getirir.
+ *
+ * `getUserMedia` yalnizca ORGANIK beslemeyi doner; reklam kopyalari orada
+ * YOKTUR. "En cok donusturen gonderi" listesinde reklam kopyalari da yer
+ * aldigi icin tek tek cekmek gerekiyor.
+ *
+ * Bulunamayan/erisilemeyen medyada FIRLATMAZ, `null` doner: bir gonderi
+ * silinmis olabilir ve bu, tum listeyi cokertmemeli.
+ */
+export async function getMediaById(
+  accessToken: string,
+  mediaId: string
+): Promise<InstagramMedia | null> {
+  try {
+    const url = new URL(`${instagramGraphBase()}/${mediaId}`);
+    url.searchParams.set("fields", MEDIA_FIELDS);
+    url.searchParams.set("access_token", accessToken);
+    const response = await fetch(url.toString());
+    if (!response.ok) return null;
+    return (await response.json()) as InstagramMedia;
+  } catch {
+    return null;
+  }
+}
