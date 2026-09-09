@@ -77,6 +77,10 @@ interface TopPost {
   mediaId: string;
   reklam: boolean;
   dm: number;
+  /** Omur boyu DM; oran bunun uzerinden — aralik sayisiyla karistirma. */
+  dmOmur: number;
+  yorum: number | null;
+  donusum: number | null;
   permalink: string | null;
   thumbnail: string | null;
   caption: string | null;
@@ -174,9 +178,21 @@ function TopPostsWidget({
                 />
               </div>
             </div>
-            <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
-              {nf.format(p.dm)}
-            </span>
+            <div className="shrink-0 text-right">
+              <div className="text-sm font-semibold tabular-nums text-foreground">
+                {nf.format(p.dm)}
+              </div>
+              {/* Tek basina DM sayisi hangi gonderinin ISE YARADIGINI
+                  soylemiyor: 3.550 yorumlu bir gonderi 127 DM ile listenin
+                  basinda cikarken yorumlarinin yalnizca %3,6'sini
+                  donusturuyor, 220 yorumlu ikinci gonderi %53'unu. Oran
+                  OMUR BOYU sayilardan (dmOmur / yorum) — ikisi ayni evren. */}
+              {p.donusum !== null && (
+                <div className="text-[11px] tabular-nums text-muted">
+                  {p.donusum}% of {nf.format(p.yorum as number)}
+                </div>
+              )}
+            </div>
           </li>
         ))}
       </ul>

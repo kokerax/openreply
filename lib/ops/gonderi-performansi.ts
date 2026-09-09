@@ -22,7 +22,21 @@ export interface GonderiSatiri {
   mediaId: string;
   /** Yorum bir reklam kopyasindan geldiyse true. */
   reklam: boolean;
+  /** Secili ARALIKTA bu gonderiden gonderilen DM. */
   dm: number;
+  /** Gonderinin OMUR BOYU DM sayisi; oran bunun uzerinden hesaplanir. */
+  dmOmur: number;
+  /** Gonderinin toplam yorum sayisi (Graph API). Cozulemezse null. */
+  yorum: number | null;
+  /**
+   * `dmOmur / yorum` yuzde. Yorum bilinmiyorsa ya da sifirsa null —
+   * "0" yazmak "hic donusturmedi" demek olurdu, oysa bilmiyoruz.
+   *
+   * Pay ve payda AYNI evrenden: ikisi de omur boyu. Aralik sayisini
+   * omur boyu yorum sayisina bolmek "son 7 gun"de 5/3550 = %0,1 gibi
+   * uydurma bir oran uretirdi.
+   */
+  donusum: number | null;
   /** Instagram'daki adres; medya silinmis/erisilemezse null. */
   permalink: string | null;
   thumbnail: string | null;
@@ -70,6 +84,28 @@ export async function gonderiPerformansi(
 
   const ustler = siralanmis.slice(0, GONDERI_TAVANI);
 
+  // Oranin paydasi (yorum sayisi) omur boyu; payi da oyle olmali. Yalnizca
+  // GOSTERILECEK gonderiler icin sayiliyor — 21 gonderinin hepsini omur boyu
+  // saymak bosuna is.
+  const omurGruplari =
+    ustler.length > 0
+      ? await prisma.dmLog.groupBy({
+          by: ["mediaId"],
+          where: {
+            workspaceId,
+            isBackfill: false,
+            status: "SENT",
+            ...SADECE_YORUM,
+            mediaId: { in: ustler.map((u) => u.mediaId) },
+            ...(instagramAccountId ? { instagramAccountId } : {}),
+          },
+          _count: { _all: true },
+        })
+      : [];
+  const omurHaritasi = new Map(
+    omurGruplari.map((g) => [g.mediaId as string, g._count._all])
+  );
+
   // Token yoksa sayilar yine dondurulur, yalnizca medya ayrintisi bos kalir:
   // "hangi gonderi" sorusunun cevabi kismen de olsa gorunur olmali.
   const hesap = await prisma.instagramAccount.findFirst({
@@ -88,8 +124,13 @@ export async function gonderiPerformansi(
   const satirlar: GonderiSatiri[] = await Promise.all(
     ustler.map(async (u) => {
       const m = token ? await getMediaById(token, u.mediaId) : null;
+      const yorum = typeof m?.comments_count === "number" ? m.comments_count : null;
+      const dmOmur = omurHaritasi.get(u.mediaId) ?? u.dm;
       return {
         ...u,
+        dmOmur,
+        yorum,
+        donusum: yorum && yorum > 0 ? Math.round((dmOmur / yorum) * 1000) / 10 : null,
         permalink: m?.permalink ?? null,
         thumbnail: m?.thumbnail_url ?? m?.media_url ?? null,
         caption: m?.caption ? m.caption.slice(0, 90) : null,
