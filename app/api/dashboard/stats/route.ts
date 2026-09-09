@@ -223,10 +223,15 @@ export async function GET(request: NextRequest) {
     // (bir sonraki yerel gune dusen satirlari) SESSIZCE dusururdu. Aralik disi
     // satirlar yine elenir — DB filtresi zaten eliyor, burasi ikinci kapi.
     const ilkGun = yerelGunAnahtari(range.from, timeZone);
-    const sonGun = yerelGunAnahtari(
+    // Aralik siniri UTC, kova yerel: +03'te araligin son ani BIR SONRAKI
+    // yerel gune duser ve grafikte ILERI TARIHLI bos bir sutun cikardi.
+    // Bugunun otesine gecme; gecmis bir aralik secildiyse `to` zaten kucuktur.
+    const araliginSonu = yerelGunAnahtari(
       new Date(range.toExclusive.getTime() - 1),
       timeZone
     );
+    const bugunAnahtari = yerelGunAnahtari(now, timeZone);
+    const sonGun = araliginSonu > bugunAnahtari ? bugunAnahtari : araliginSonu;
     const perDay = new Map<string, number>();
     for (const k of dayKeys(range)) perDay.set(k, 0);
     perDay.set(ilkGun, perDay.get(ilkGun) ?? 0);

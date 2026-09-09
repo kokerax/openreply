@@ -126,6 +126,20 @@ describe("GET /api/dashboard/stats", () => {
     vi.useRealTimers();
   });
 
+  it("ILERI TARIHLI bos gun gostermez", async () => {
+    // +03'te araligin son UTC ani ertesi yerel gune duser; grafikte henuz
+    // gelmemis bir gun bos sutun olarak cikiyordu.
+    vi.setSystemTime(new Date("2026-09-09T01:00:00.000Z")); // Istanbul 04:00
+    primeHappyPath();
+
+    const res = await GET(req("?from=2026-09-01&to=2026-09-09&tz=Europe/Istanbul"));
+    const gunler = (await res.json()).data.dailyDMs.map((d: { date: string }) => d.date);
+
+    expect(gunler).not.toContain("2026-09-10");
+    expect(gunler[gunler.length - 1]).toBe("2026-09-09");
+    vi.useRealTimers();
+  });
+
   it("KARSI YON: tz YOKSA eski UTC davranisi aynen surer", async () => {
     primeHappyPath([
       { createdAt: new Date("2026-08-02T21:30:00.000Z") },
