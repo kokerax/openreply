@@ -38,6 +38,21 @@ interface Pagination {
   totalPages: number;
 }
 
+/** /api/leads/funnel — "kac kisiye sorduk, kaci verdi". */
+interface KapiSatiri {
+  automationId: string;
+  automationName: string;
+  soruldu: number;
+  verdi: number;
+  acik: number;
+  oran: number;
+}
+interface KapiHunisi {
+  satirlar: KapiSatiri[];
+  toplam: { soruldu: number; verdi: number; acik: number; oran: number };
+  digerDurum: number;
+}
+
 interface CampaignOption {
   id: string;
   name: string;
@@ -45,6 +60,7 @@ interface CampaignOption {
 
 type SortCol = "createdAt" | "email" | "username" | "campaign";
 
+const nf = new Intl.NumberFormat("en-US");
 const PAGE_SIZE = 50;
 /** Same as the route's hard cap; a bigger result is reported as truncated. */
 const BULK_LIMIT = 5000;
@@ -78,6 +94,7 @@ export default function LeadsPage() {
   // link) lands pre-filtered. useSearchParams would force a Suspense boundary.
   const [automationId, setAutomationId] = useState("all");
   const [range, setRange] = useState<DateRange>(() => rangeForDays(30));
+  const [huni, setHuni] = useState<KapiHunisi | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState<SortCol>>({ col: "createdAt", dir: "desc" });
@@ -139,6 +156,28 @@ export default function LeadsPage() {
       if (seq === requestSeq.current) setLoading(false);
     }
   }, [buildParams, toast]);
+
+  // Huni yalnizca ARALIGA ve kampanyaya bagli: arama kutusuna her harf
+  // yazildiginda yeniden cekmek bos yere istek olurdu ve "129 soruldu"
+  // aramaya gore degisiyormus gibi YANLIS bir izlenim verirdi.
+  useEffect(() => {
+    const params = rangeToParams(range);
+    if (automationId !== "all") params.set("automationId", automationId);
+    let iptal = false;
+    fetch(`/api/leads/funnel?${params}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((payload) => {
+        if (iptal || !payload.success) return;
+        setHuni(payload.data as KapiHunisi);
+      })
+      .catch(() => {
+        // Huni ek bilgi; listesi olmadan da sayfa calisir.
+        if (!iptal) setHuni(null);
+      });
+    return () => {
+      iptal = true;
+    };
+  }, [range, automationId]);
 
   useEffect(() => {
     fetch("/api/automations", { cache: "no-store" })
@@ -301,6 +340,57 @@ export default function LeadsPage() {
           />
         </div>
       </div>
+
+      {/* E-posta kapisi hunisi: liste "kac adres topladik" diyor, bu serit
+          "kac kisiye sorduk" diyor. Sizinti ancak ikisi yan yana gorunur. */}
+      {huni && huni.toplam.soruldu > 0 && (
+        <section className="card p-4" aria-labelledby="kapi-hunisi-basligi">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 id="kapi-hunisi-basligi" className="section-title">
+              Email gate
+            </h2>
+            <span className="text-xs text-muted">
+              {nf.format(huni.toplam.soruldu)} asked ·{" "}
+              {nf.format(huni.toplam.verdi)} gave an email ·{" "}
+              {nf.format(huni.toplam.acik)} still open
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div
+              className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--surface-2,#222)]"
+              role="img"
+              aria-label={`${huni.toplam.oran}% of people asked gave an email`}
+            >
+              <div
+                className="h-full rounded-full bg-[var(--accent,#f59e0b)]"
+                style={{ width: `${Math.min(100, huni.toplam.oran)}%` }}
+              />
+            </div>
+            <span className="text-lg font-semibold tabular-nums">
+              {huni.toplam.oran}%
+            </span>
+          </div>
+
+          {huni.satirlar.length > 1 && (
+            <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+              {huni.satirlar.map((s) => (
+                <li key={s.automationId}>
+                  <span className="text-fg">{truncate(s.automationName, 28)}</span>{" "}
+                  {nf.format(s.soruldu)} → {nf.format(s.verdi)} ({s.oran}%)
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {huni.digerDurum > 0 && (
+            <p className="mt-2 text-xs text-muted">
+              {nf.format(huni.digerDurum)} gate message(s) neither delivered nor
+              answered — not counted in the rate.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Table */}
       <div className="table-wrap" aria-busy={loading}>

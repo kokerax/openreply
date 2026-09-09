@@ -34,8 +34,6 @@ export const SENTETIK_TURLER = {
   reveal: "reveal",
   /** Takip istemi gonderildi. */
   followgate: "followgate",
-  /** Takip istemi gonderildi. */
-
   /** DM tetikleyici (yorumdan degil, dogrudan mesajdan). */
   dm: "dm",
 } as const;
@@ -77,6 +75,17 @@ export function bilinenSentetikTur(commentId: string): boolean {
  * grafik, kota) KULLANMAZ — orada defter satirlari da gercek mesajdir.
  */
 export const SADECE_YORUM = { commentId: { not: { contains: ":" } } } as const;
+
+/**
+ * Prisma `where` parcasi: SADECE bir turun defter satirlari.
+ *
+ * `SADECE_YORUM`'un simetrigi. Satir ici `startsWith: "emailgate:"` yazmak,
+ * bu modulun engellemeye calistigi hatanin ta kendisi: onek bir gun degisirse
+ * ya da yeni bir tur eklenirse o sorgu sessizce yanlis kumeyi olcer.
+ */
+export function sadeceTur(tur: SentetikTur) {
+  return { commentId: { startsWith: `${SENTETIK_TURLER[tur]}:` } } as const;
+}
 
 // ─── Buton postback yukleri — AYRI AD ALANI ─────────────────────────────────
 //
