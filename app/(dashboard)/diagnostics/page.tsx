@@ -84,6 +84,14 @@ interface QueueJob {
   completedAt: string | null;
 }
 
+interface SeoHealth {
+  kontroller: { ad: string; durum: "gecti" | "kaldi" | "belirsiz"; detay: string }[];
+  taranan: { sayfa: number; sitemapUrl: number };
+  gecti: number;
+  kaldi: number;
+  belirsiz: number;
+}
+
 interface QueueData {
   jobs: QueueJob[];
   stuckCount: number;
@@ -163,6 +171,88 @@ function Section({
       </div>
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+/**
+ * SEO saglik karti.
+ *
+ * 2026-09-09'da duzeltilen bes SEO kusuru (sitemap, robots, metadataBase,
+ * canonical, FAQ isaretlemesi) **sessizce** geri gelebilir: bir refactor
+ * `metadataBase`'i dusurse hicbir test kirmizi yanmaz. Bu kart canli
+ * sayfalari cekip bakar, kaynak kodu degil.
+ */
+function SeoHealthWidget() {
+  const [data, setData] = useState<SeoHealth | null>(null);
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [hata, setHata] = useState<string | null>(null);
+
+  const yukle = useCallback(async () => {
+    setYukleniyor(true);
+    setHata(null);
+    try {
+      const r = await fetch("/api/admin/seo-health");
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error ?? `HTTP ${r.status}`);
+      setData(j.data as SeoHealth);
+    } catch (e) {
+      setHata(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setYukleniyor(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void yukle();
+  }, [yukle]);
+
+  if (yukleniyor && !data) return <Skeleton rows={3} />;
+  if (hata) return <p className="text-sm text-error">{hata}</p>;
+  if (!data) return null;
+
+  const pill = (d: SeoHealth["kontroller"][number]["durum"]) =>
+    d === "gecti" ? "pill pill-success" : d === "kaldi" ? "pill pill-error" : "pill pill-warning";
+  const etiket = (d: SeoHealth["kontroller"][number]["durum"]) =>
+    d === "gecti" ? "OK" : d === "kaldi" ? "Broken" : "Unknown";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+        <span className="pill pill-success">{data.gecti} OK</span>
+        {data.kaldi > 0 && <span className="pill pill-error">{data.kaldi} broken</span>}
+        {data.belirsiz > 0 && <span className="pill pill-warning">{data.belirsiz} unknown</span>}
+        {/* Kac birim tarandigi HEP yazilir: sessizce hicbir sey bulamamak ile
+            temiz demek ayni ciktiya benzememeli. */}
+        <span>
+          checked {data.taranan.sayfa} pages · {data.taranan.sitemapUrl} sitemap URLs
+        </span>
+        <button type="button" className="btn btn-secondary btn-sm ml-auto" onClick={() => void yukle()}>
+          Re-check
+        </button>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Status</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.kontroller.map((k) => (
+              <tr key={k.ad}>
+                <td className="whitespace-nowrap font-medium text-foreground">{k.ad}</td>
+                <td className="whitespace-nowrap">
+                  <span className={pill(k.durum)}>{etiket(k.durum)}</span>
+                </td>
+                <td className="break-all text-muted">{k.detay}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -546,6 +636,14 @@ export default function DiagnosticsPage() {
             </dl>
           )}
         </SectionBody>
+      </Section>
+
+      {/* SEO health */}
+      <Section
+        title="SEO health"
+        description="Live check of the public pages: sitemap, robots, canonical, og:url and FAQ markup. These can regress silently — no test turns red if metadataBase is dropped."
+      >
+        <SeoHealthWidget />
       </Section>
 
       {/* Rate limits (agent A widget) */}
