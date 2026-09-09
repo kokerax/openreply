@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { dayKeys, resolveDateRange } from "@/lib/utils/date-range";
-import { sentetikMi } from "@/lib/queue/dmlog-kayit-turu";
+import { SADECE_YORUM, sentetikMi } from "@/lib/queue/dmlog-kayit-turu";
 import {
   bolgedeGunBasi,
   resolveTimeZone,
@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
       totalDMs,
       dmStatusCountsInRange,
       clicksInRange,
+      tekilTiklamaGruplari,
       totalClicks,
       topKeywordRows,
       recentLogs,
@@ -118,6 +119,9 @@ export async function GET(request: NextRequest) {
           // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
           isBackfill: false,
           status: "SENT",
+          // Sentetik defter satirlari (reveal:/emailgate:) kampanya DM'i
+          // DEGIL, takip mesaji: KPI'ya girerse CTR paydasi sisiyor.
+          ...SADECE_YORUM,
           createdAt: { gte: todayStart },
           ...accountFilter,
         },
@@ -128,6 +132,9 @@ export async function GET(request: NextRequest) {
           // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
           isBackfill: false,
           status: "SENT",
+          // Sentetik defter satirlari (reveal:/emailgate:) kampanya DM'i
+          // DEGIL, takip mesaji: KPI'ya girerse CTR paydasi sisiyor.
+          ...SADECE_YORUM,
           createdAt: { gte: weekStart },
           ...accountFilter,
         },
@@ -138,6 +145,9 @@ export async function GET(request: NextRequest) {
           // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
           isBackfill: false,
           status: "SENT",
+          // Sentetik defter satirlari (reveal:/emailgate:) kampanya DM'i
+          // DEGIL, takip mesaji: KPI'ya girerse CTR paydasi sisiyor.
+          ...SADECE_YORUM,
           ...inRange,
           ...accountFilter,
         },
@@ -148,6 +158,9 @@ export async function GET(request: NextRequest) {
           // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
           isBackfill: false,
           status: "SENT",
+          // Sentetik defter satirlari (reveal:/emailgate:) kampanya DM'i
+          // DEGIL, takip mesaji: KPI'ya girerse CTR paydasi sisiyor.
+          ...SADECE_YORUM,
           ...accountFilter,
         },
       }),
@@ -164,6 +177,13 @@ export async function GET(request: NextRequest) {
       }),
       prisma.linkClick.count({
         where: { workspaceId, ...inRange, ...accountFilter },
+      }),
+      // Tekil tiklayan: CTR paydasi kisi bazli oldugu icin pay da oyle
+      // olmali. Ayni kisinin iki tiklamasi "iki donusum" degildir.
+      prisma.linkClick.groupBy({
+        by: ["ipHash"],
+        where: { workspaceId, ...inRange, ...accountFilter },
+        _count: { _all: true },
       }),
       prisma.linkClick.count({ where: { workspaceId, ...accountFilter } }),
       prisma.dmLog.groupBy({
@@ -207,6 +227,8 @@ export async function GET(request: NextRequest) {
           // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
           isBackfill: false,
           status: "SENT",
+          // Sentetik defter satirlari (reveal:/emailgate:) kampanya DM'i
+          // DEGIL, takip mesaji: KPI'ya girerse CTR paydasi sisiyor.
           ...inRange,
           ...accountFilter,
         },
@@ -235,11 +257,18 @@ export async function GET(request: NextRequest) {
     );
     const bugunAnahtari = yerelGunAnahtari(now, timeZone);
     const sonGun = araliginSonu > bugunAnahtari ? bugunAnahtari : araliginSonu;
+    // Ekrandaki her sayi ayni evrenden gelmeli. `sentRows` iki tur satir
+    // tasiyor: yoruma karsilik gonderilen kampanya DM'i ve sonrasindaki
+    // TAKIP mesajlari (reveal:/emailgate: defter satirlari). Ayrimi burada
+    // BIR KEZ yap; grafik, dagilim ve KPI ayni kumeyi kullansin.
+    const yorumSatirlari = sentRows.filter((r) => !sentetikMi(r.commentId));
+    const takipMesajlari = sentRows.length - yorumSatirlari.length;
+
     const perDay = new Map<string, number>();
     for (const k of dayKeys(range)) perDay.set(k, 0);
     perDay.set(ilkGun, perDay.get(ilkGun) ?? 0);
     perDay.set(sonGun, perDay.get(sonGun) ?? 0);
-    for (const row of sentRows) {
+    for (const row of yorumSatirlari) {
       const key = yerelGunAnahtari(row.createdAt, timeZone);
       if (key < ilkGun || key > sonGun) continue;
       perDay.set(key, (perDay.get(key) ?? 0) + 1);
@@ -253,17 +282,22 @@ export async function GET(request: NextRequest) {
     // kayitlar "bilinmiyor"da kalir — onlari organige saymak gecmisi
     // oldugundan daha organik gosterirdi. Kampanya sayfasindaki ayni kural.
     const sourceSplit = { ad: 0, organic: 0, unknown: 0 };
-    for (const row of sentRows) {
-      // SADECE GERCEK YORUMLAR. DmLog e-posta kapisi / link acilisi / DM
-      // tetikleyicisi icin de defter satiri yaziyor ve `commentId`'ye
-      // "emailgate:<igsid>" gibi sentetik anahtar koyuyor. Bunlarin medyasi
-      // HIC OLMAZ; "bilinmiyor" kovasina koymak karti sisiriyordu — 306
-      // "izlenmeyen"in 247'si aslinda yorum bile degildi.
-      if (sentetikMi(row.commentId)) continue;
+    for (const row of yorumSatirlari) {
+      // Kume yukarida ayrildi: defter satirlarinin medyasi HIC OLMAZ ve
+      // "bilinmiyor" kovasini sisiriyordu — 306 "izlenmeyen"in 247'si
+      // aslinda yorum bile degildi.
       if (row.originalMediaId) sourceSplit.ad += 1;
       else if (row.mediaId) sourceSplit.organic += 1;
       else sourceSplit.unknown += 1;
     }
+
+    // Tekil tiklayan. `ipHash` yazilmadan onceki satirlar tekillestirilemez;
+    // hepsini "bir kisi" saymak donusumu OLDUGUNDAN DUSUK gosterirdi, o yuzden
+    // kimliksiz grup oldugu gibi eklenir. Kampanya sayfasindaki ayni kural.
+    const uniqueClicksInRange = tekilTiklamaGruplari.reduce(
+      (t, g) => t + (g.ipHash === null ? g._count._all : 1),
+      0
+    );
 
     const statusSummary = summarizeDmStatuses(
       dmStatusCountsInRange.map((row) => ({
@@ -306,7 +340,13 @@ export async function GET(request: NextRequest) {
         totalDMs,
         clicksThisMonth: clicksInRange,
         totalClicks,
-        ctrThisMonth: calculateCtr(clicksInRange, dmsSentInRange),
+        // CTR kisi bazli: pay TEKIL tiklayan, payda yoruma gonderilen DM.
+        // Ikisi ayni evrende olmazsa oran uydurma olur.
+        ctrThisMonth: calculateCtr(uniqueClicksInRange, dmsSentInRange),
+        uniqueClicksThisMonth: uniqueClicksInRange,
+        // Gonderilen mesaj kaybolmus gibi gorunmesin: KPI'dan cikan takip
+        // mesajlari ekranda AYRICA yaziliyor.
+        followUpMessages: takipMesajlari,
         topKeywords,
         dailyDMs,
         recentLogs,

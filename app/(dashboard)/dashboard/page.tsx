@@ -33,6 +33,10 @@ interface DashboardStats {
   dmsFailedMonth: number;
   totalDMs: number;
   clicksThisMonth: number;
+  /** Ayni ipHash bir kez. CTR bunun uzerinden hesaplanir. */
+  uniqueClicksThisMonth?: number;
+  /** KPI'ya girmeyen takip mesajlari (reveal:/emailgate: defter satirlari). */
+  followUpMessages?: number;
   totalClicks: number;
   ctrThisMonth: number;
   instagramAccounts: AccountOption[];
@@ -327,7 +331,11 @@ export default function DashboardPage() {
           <StatCard
             label="DMs Sent"
             value={nf.format(stats?.dmsSentMonth ?? 0)}
-            hint={`${nf.format(stats?.dmsSentToday ?? 0)} today · ${nf.format(
+            hint={`${
+              stats?.followUpMessages
+                ? `+${nf.format(stats.followUpMessages)} follow-up · `
+                : ""
+            }${nf.format(stats?.dmsSentToday ?? 0)} today · ${nf.format(
               stats?.dmsSentWeek ?? 0
             )} this week${
               stats?.timeZone ? ` (${stats.timeZone.split("/").pop()?.replace(/_/g, " ")})` : ""
@@ -335,8 +343,23 @@ export default function DashboardPage() {
           />
           <StatCard label="Skipped" value={nf.format(stats?.dmsSkippedMonth ?? 0)} />
           <StatCard label="Failed" value={nf.format(stats?.dmsFailedMonth ?? 0)} />
-          <StatCard label="Clicks" value={nf.format(stats?.clicksThisMonth ?? 0)} />
-          <StatCard label="CTR" value={`${stats?.ctrThisMonth ?? 0}%`} hint="clicks ÷ DMs sent" />
+          <StatCard
+            label="Clicks"
+            value={nf.format(stats?.clicksThisMonth ?? 0)}
+            hint={
+              stats?.uniqueClicksThisMonth === undefined
+                ? undefined
+                : `${nf.format(stats.uniqueClicksThisMonth)} unique`
+            }
+          />
+          {/* Pay ve payda ayni evrenden: tekil tiklayan / yoruma gonderilen
+              DM. Aritmetigi ekranda gorunur olsun diye "Clicks" karti da
+              tekil sayiyi yaziyor. */}
+          <StatCard
+            label="CTR"
+            value={`${stats?.ctrThisMonth ?? 0}%`}
+            hint="unique clicks ÷ DMs sent"
+          />
         </div>
       </section>
 

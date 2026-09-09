@@ -13,7 +13,7 @@ const { mockPrisma, mockWorkspaceId, mockUserId } = vi.hoisted(() => ({
     instagramAccount: { findFirst: vi.fn(), findMany: vi.fn() },
     automation: { count: vi.fn() },
     dmLog: { count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
-    linkClick: { count: vi.fn() },
+    linkClick: { count: vi.fn(), groupBy: vi.fn() },
     user: { findUnique: vi.fn() },
   },
   mockWorkspaceId: vi.fn(),
@@ -55,6 +55,7 @@ function primeHappyPath(girdiler: SentRow[] = []) {
   mockPrisma.dmLog.count.mockResolvedValue(7);
   mockPrisma.dmLog.groupBy.mockResolvedValue([]);
   mockPrisma.linkClick.count.mockResolvedValue(2);
+  mockPrisma.linkClick.groupBy.mockResolvedValue([]);
   mockPrisma.user.findUnique.mockResolvedValue({ name: "Ali Koker", email: "a@b.c" });
   // findMany is used three times: recentLogs, contacts (distinct), sent series.
   mockPrisma.dmLog.findMany.mockImplementation(async (args: { select?: { createdAt?: boolean } }) => {
@@ -183,10 +184,15 @@ describe("GET /api/dashboard/stats", () => {
     const d = (await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json()).data;
 
     expect(d.sourceSplit).toEqual({ ad: 0, organic: 1, unknown: 0 });
-    // Gunluk grafik TUM gonderimleri saymaya devam eder — kirilim yalnizca
-    // yorumlari anlatir, ikisi ayri sorulardir.
+    // ESKIDEN burada 3 bekleniyordu: "grafik tum gonderimleri sayar, kirilim
+    // yalnizca yorumlari — ikisi ayri sorulardir." Bu gerekce canli panelde
+    // yanlis cikti: KPI 666 derken hemen altindaki kirilim 419 diyordu ve
+    // ayni ekrandaki iki sayi birbirini yalanliyordu. Grafik de kirilim de
+    // AYNI evrenden (yoruma gonderilen DM) sayar; takip mesajlari
+    // `followUpMessages` alaninda ayrica gorunur.
     const toplamGonderim = d.dailyDMs.reduce((a: number, x: { count: number }) => a + x.count, 0);
-    expect(toplamGonderim).toBe(3);
+    expect(toplamGonderim).toBe(1);
+    expect(d.followUpMessages).toBe(2);
   });
 
   it("KARSI YON: hepsi organikse reklam sifir", async () => {
@@ -280,5 +286,103 @@ describe("GET /api/dashboard/stats", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body).toEqual({ success: false, error: "db down" });
+  });
+});
+
+/**
+ * Ayni ekranda iki sayi celisiyordu: KPI karti "DMs Sent 666" derken hemen
+ * altindaki kaynak dagilimi 419 diyordu. Fark 247 sentetik defter satiri
+ * (reveal:/emailgate:/dm:) — bunlar kampanya DM'i degil, TAKIP mesaji.
+ *
+ * Sonuc yalnizca kozmetik degildi: CTR paydasi 666'ya sisiyor ve donusum
+ * %27,5 gorunuyordu; gercegi 154/419 = %36,8.
+ */
+describe("tek evren: KPI, grafik ve dagilim ayni sayiyi anlatir", () => {
+  /** status=SENT olan her dmLog.count cagrisinin where'i. */
+  function sentSayimlari() {
+    return mockPrisma.dmLog.count.mock.calls
+      .map((c) => c[0]?.where)
+      .filter((w) => w?.status === "SENT");
+  }
+
+  it("SENT sayimlari sentetik defter satirlarini SAYMAZ", async () => {
+    primeHappyPath([]);
+    await GET(req("?from=2026-08-01&to=2026-08-05"));
+
+    const sayimlar = sentSayimlari();
+    // Bugun, hafta, aralik ve tum-zaman: dordu de.
+    expect(sayimlar.length).toBeGreaterThanOrEqual(4);
+    for (const w of sayimlar) {
+      expect(w.commentId).toEqual({ not: { contains: ":" } });
+      // Karsi yon: goc muhurleri hala eleniyor olmali.
+      expect(w.isBackfill).toBe(false);
+    }
+  });
+
+  it("takip mesajlari GIZLENMEZ, ayri alanda raporlanir", async () => {
+    primeHappyPath([
+      { createdAt: new Date("2026-08-02T05:00:00.000Z") },
+      { createdAt: new Date("2026-08-02T06:00:00.000Z"), commentId: "reveal:p1" },
+      { createdAt: new Date("2026-08-03T06:00:00.000Z"), commentId: "emailgate:p2" },
+    ]);
+
+    const body = await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json();
+
+    // Gonderilen mesaj kayboluyor gibi gorunmemeli: 247 satirin nereye
+    // gittigi ekranda yazili olmali.
+    expect(body.data.followUpMessages).toBe(2);
+  });
+
+  it("gunluk grafik de sentetikleri saymaz — dagilimla TOPLAMI tutar", async () => {
+    primeHappyPath([
+      { createdAt: new Date("2026-08-02T05:00:00.000Z") },
+      { createdAt: new Date("2026-08-02T06:00:00.000Z"), commentId: "reveal:p1" },
+      { createdAt: new Date("2026-08-02T07:00:00.000Z"), commentId: "emailgate:p2" },
+      { createdAt: new Date("2026-08-04T12:00:00.000Z") },
+    ]);
+
+    const body = await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json();
+    const seriToplam = body.data.dailyDMs.reduce(
+      (a: number, g: { count: number }) => a + g.count,
+      0
+    );
+    const s = body.data.sourceSplit;
+
+    expect(seriToplam).toBe(2);
+    // Ic tutarlilik caprazi: grafik ve dagilim ayni evrenden.
+    expect(seriToplam).toBe(s.ad + s.organic + s.unknown);
+  });
+
+  it("CTR TEKIL tiklamadan hesaplanir, toplam tiklamadan degil", async () => {
+    primeHappyPath([]);
+    mockPrisma.dmLog.count.mockResolvedValue(10);
+    // 4 tiklama ama 2 tekil kisi.
+    mockPrisma.linkClick.count.mockResolvedValue(4);
+    mockPrisma.linkClick.groupBy.mockResolvedValue([
+      { ipHash: "a", _count: { _all: 3 } },
+      { ipHash: "b", _count: { _all: 1 } },
+    ]);
+
+    const body = await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json();
+
+    expect(body.data.clicksThisMonth).toBe(4);
+    expect(body.data.uniqueClicksThisMonth).toBe(2);
+    // 2/10 = %20; toplamla hesaplasaydi %40 derdi.
+    expect(body.data.ctrThisMonth).toBe(20);
+  });
+
+  it("ipHash'i OLMAYAN eski tiklamalar tekillestirilemez, teker teker sayilir", async () => {
+    primeHappyPath([]);
+    mockPrisma.dmLog.count.mockResolvedValue(10);
+    mockPrisma.linkClick.count.mockResolvedValue(5);
+    mockPrisma.linkClick.groupBy.mockResolvedValue([
+      { ipHash: null, _count: { _all: 3 } },
+      { ipHash: "a", _count: { _all: 2 } },
+    ]);
+
+    const body = await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json();
+
+    // 3 kimliksiz + 1 tekil = 4. Hepsini "1 kisi" saymak donusumu gizlerdi.
+    expect(body.data.uniqueClicksThisMonth).toBe(4);
   });
 });
