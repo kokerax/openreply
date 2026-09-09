@@ -3,6 +3,7 @@ import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { dayKeys, resolveDateRange } from "@/lib/utils/date-range";
 import { SADECE_YORUM, sentetikMi } from "@/lib/queue/dmlog-kayit-turu";
+import { webhookDurumu } from "@/lib/ops/webhook-durumu";
 import {
   bolgedeGunBasi,
   resolveTimeZone,
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
       workspace,
       instagramAccount,
       instagramAccounts,
+      sonWebhookOlayi,
       totalAutomations,
       activeAutomations,
       dmsSentToday,
@@ -108,6 +110,14 @@ export async function GET(request: NextRequest) {
           tokenExpiresAt: true,
           webhookSubscribed: true,
         },
+      }),
+      // Webhook rozeti BAYRAKTAN degil davranistan turuyor: bayrak yalnizca
+      // OAuth aninda yaziliyor ve bayatlayabiliyor (canli: bayrak false iken
+      // 24 saatte 502 olay geldi).
+      prisma.webhookEvent.findFirst({
+        where: { workspaceId },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
       }),
       prisma.automation.count({ where: { workspaceId, ...accountFilter } }),
       prisma.automation.count({
@@ -330,7 +340,16 @@ export async function GET(request: NextRequest) {
         contactsCount: contactRows.length,
         workspace,
         instagramAccount,
-        instagramAccounts,
+        instagramAccounts: instagramAccounts.map((h) => ({
+          ...h,
+          // Rozet bayragin kendisinden degil buradan turuyor; celiskiyi
+          // gizlemek yerine ayri bir durum olarak veriyoruz.
+          webhookDurumu: webhookDurumu(
+            h.webhookSubscribed,
+            sonWebhookOlayi?.createdAt ?? null,
+            now
+          ),
+        })),
         selectedInstagramAccountId: selectedAccountId,
         range: { from: range.fromKey, to: range.toKey, days: range.days },
         // Panel "Today"in HANGI takvime gore oldugunu yazabilsin diye.

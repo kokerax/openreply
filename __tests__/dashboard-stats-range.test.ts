@@ -14,6 +14,8 @@ const { mockPrisma, mockWorkspaceId, mockUserId } = vi.hoisted(() => ({
     automation: { count: vi.fn() },
     dmLog: { count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
     linkClick: { count: vi.fn(), groupBy: vi.fn() },
+    // Webhook rozeti artik davranistan turuyor; rota son olayi da cekiyor.
+    webhookEvent: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
   },
   mockWorkspaceId: vi.fn(),
@@ -56,6 +58,7 @@ function primeHappyPath(girdiler: SentRow[] = []) {
   mockPrisma.dmLog.groupBy.mockResolvedValue([]);
   mockPrisma.linkClick.count.mockResolvedValue(2);
   mockPrisma.linkClick.groupBy.mockResolvedValue([]);
+  mockPrisma.webhookEvent.findFirst.mockResolvedValue(null);
   mockPrisma.user.findUnique.mockResolvedValue({ name: "Ali Koker", email: "a@b.c" });
   // findMany is used three times: recentLogs, contacts (distinct), sent series.
   mockPrisma.dmLog.findMany.mockImplementation(async (args: { select?: { createdAt?: boolean } }) => {

@@ -27,7 +27,11 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
-import { postbackYuku, sentetikAnahtar } from "@/lib/queue/dmlog-kayit-turu";
+import {
+  postbackYuku,
+  sentetikAnahtar,
+  sentetikMi,
+} from "@/lib/queue/dmlog-kayit-turu";
 import { reserveDMSlot } from "@/lib/utils/pg-rate-limiter";
 import {
   releaseWorkspaceDMReservation,
@@ -449,7 +453,14 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     if (
       automation.publicReplyEnabled &&
       replyPool.length > 0 &&
-      !existingLog?.publicReplySentAt
+      !existingLog?.publicReplySentAt &&
+      // Defter satirinin (reveal:/emailgate:/dm:) yorum karsiligi YOKTUR.
+      // Canli hata: "Object with ID 'dm:aWdfZAG1faXRlbToxOklH...' does not
+      // exist". Kok neden kurtarma yolunun defter satirlarini kuyruklamasiydi
+      // ve o duzeltildi; bu kapi kuyruk ne gonderirse gondersin gonderim
+      // aninda tutuyor. `SADECE_YORUM` sayim yollarini korur, burasi YAZMA
+      // yolunu.
+      !sentetikMi(commentId)
     ) {
       try {
         const chosen = replyPool[Math.floor(Math.random() * replyPool.length)];
@@ -665,7 +676,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
             instagramAccountId: automation.instagramAccountId,
             commenterId,
             commenterName,
-            commentText: "(e-posta bekleniyor)",
+            commentText: "(waiting for email)",
             commentId: epostaKapisiAnahtari(commenterId),
             status: "PENDING",
           },
@@ -874,7 +885,7 @@ async function takipIstemiGonderilebilirMi(
       instagramAccountId: automation.instagramAccountId,
       commenterId: userId,
       commenterName,
-      commentText: "(takip istemi)",
+      commentText: "(follow prompt)",
       commentId: anahtar,
       status: "PENDING",
       attempts: 1,
@@ -998,7 +1009,7 @@ async function epostaSonrasiLinkiGonder(
         instagramAccountId: automation.instagramAccountId,
         commenterId: igsid,
         commenterName,
-        commentText: "(e-posta alindi)",
+        commentText: "(email received)",
         commentId: dedupeId,
         status: "SENT",
         dmSentAt: new Date(),
@@ -1015,7 +1026,7 @@ async function epostaSonrasiLinkiGonder(
         instagramAccountId: automation.instagramAccountId,
         commenterId: igsid,
         commenterName,
-        commentText: "(e-posta alindi)",
+        commentText: "(email received)",
         commentId: dedupeId,
         status: "FAILED",
         errorMessage: formatError(error),

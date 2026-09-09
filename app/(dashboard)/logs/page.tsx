@@ -7,6 +7,7 @@
  */
 
 import Link from "next/link";
+import { defterEtiketi } from "@/lib/queue/defter-etiketi";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import DateRangePicker, {
@@ -183,7 +184,7 @@ export default function LogsPage() {
         { header: "Date", value: (r) => r.createdAt },
         { header: "Status", value: (r) => r.status },
         { header: "Commenter", value: (r) => r.commenterName ?? r.commenterId },
-        { header: "Comment", value: (r) => r.commentText },
+        { header: "Comment", value: (r) => defterEtiketi(r.commentText) },
         { header: "Campaign", value: (r) => r.automation.name },
         { header: "Account", value: (r) => r.instagramAccount.username },
         { header: "Error", value: (r) => r.errorMessage },
@@ -355,8 +356,15 @@ export default function LogsPage() {
                     @{log.commenterName ?? log.commenterId.slice(0, 8)}
                   </td>
                   <td className="max-w-[240px]">
-                    <span className="block truncate text-muted" title={log.commentText}>
-                      {log.commentText}
+                    {/* Defter satirlarinin etiketi veritabaninda iki dilde
+                        yazilmis; ayni sutunda "(button tap)" ile
+                        "(e-posta alindi)" yan yana cikiyordu. Esleme burada
+                        yapiliyor ki gecmis satirlar da duzelsin. */}
+                    <span
+                      className="block truncate text-muted"
+                      title={defterEtiketi(log.commentText)}
+                    >
+                      {defterEtiketi(log.commentText)}
                     </span>
                   </td>
                   <td className="text-muted">{log.automation.name}</td>

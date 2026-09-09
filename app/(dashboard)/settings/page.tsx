@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
+import { webhookRozeti, type WebhookDurumu } from "@/lib/ops/webhook-durumu";
 import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
 import StatusBadge from "@/components/status-badge";
@@ -20,6 +21,8 @@ interface SettingsData {
     AccountOption & {
       tokenExpiresAt: string | null;
       webhookSubscribed: boolean;
+      /** Bayraktan DEGIL davranistan turemis durum. */
+      webhookDurumu?: WebhookDurumu;
     }
   >;
 }
@@ -407,11 +410,20 @@ export default function SettingsPage() {
                         ? formatDate(account.tokenExpiresAt)
                         : "not available"}
                     </span>
-                    {account.webhookSubscribed ? (
-                      <StatusBadge status="ACTIVE" label="Webhook ready" />
-                    ) : (
-                      <StatusBadge status="PENDING" label="Webhook pending" />
-                    )}
+                    {/* Bayrak yalnizca OAuth aninda yaziliyor; canlida
+                        false iken 24 saatte 502 olay geliyordu ve panel
+                        calisan baglantiya "pending" diyordu. */}
+                    {(() => {
+                      const r = webhookRozeti(
+                        account.webhookDurumu ??
+                          (account.webhookSubscribed ? "abone-sessiz" : "bekliyor")
+                      );
+                      return (
+                        <span title={r.hint}>
+                          <StatusBadge status={r.status} label={r.label} />
+                        </span>
+                      );
+                    })()}
                   </p>
                 </div>
                 <button
