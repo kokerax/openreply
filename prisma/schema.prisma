@@ -310,12 +310,24 @@ model DmLog {
   @@index([automationId, originalMediaId])
 }
 
-// Every comment the system has seen, from either the webhook or the polling
-// reconciler. This is the shared dedup set: a comment id present here has
-// already been queued for processing, so neither path acts on it twice. It is
-// distinct from DmLog (which only records comments that matched a campaign);
-// this records all comments so the reconciler doesn't re-sweep non-matching
-// ones every cycle.
+// KULLANILMIYOR — hicbir kod bu tabloya yazmiyor ya da okumuyor (uretilen
+// Prisma istemcisi disinda sifir referans, tabloda sifir satir).
+//
+// Eskiden burada "paylasilan dedup kumesi: burada olan bir yorum zaten
+// kuyruklanmistir, iki yol da iki kez islemez" yaziyordu. Bu VAAT HIC
+// GERCEKLESMEDI ve zararliydi: 2026-09 denetiminde webhook/tarama yarisi
+// incelenirken bu yorum okunup "koruma zaten var" sanildi. Gercekte
+// PENDING bir kayit iki kez gonderilebiliyordu.
+//
+// Gercek koruma nerede:
+//   - lib/polling/comment-reconciler.ts — kuyrukta PENDING/ACTIVE isi olan
+//     yorum yeniden kuyruklanmaz (ucusta olan is korumasi)
+//   - DmLog @@unique([automationId, commentId]) — kampanya basina tek satir
+//   - worker'da `alreadyDmd` / `publicReplySentAt` kontrolleri
+//
+// Tabloyu birakiyoruz cunku DROP geri alinamaz ve bos bir tablo zarar
+// vermiyor. Kullanmaya karar verilirse bu yorum GUNCELLENMELI —
+// __tests__/olu-model.test.ts bunu zorunlu kiliyor.
 model ProcessedComment {
   id                 String   @id @default(cuid())
   instagramAccountId String

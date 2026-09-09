@@ -33,7 +33,14 @@ function req(query = "") {
   return new NextRequest(`http://localhost/api/dashboard/stats${query}`);
 }
 
-function primeHappyPath(sentRows: { createdAt: Date }[] = []) {
+/** Route artik satirdan mediaId/originalMediaId de okuyor (reklam kirilimi). */
+type SentRow = {
+  createdAt: Date;
+  mediaId?: string | null;
+  originalMediaId?: string | null;
+};
+
+function primeHappyPath(sentRows: SentRow[] = []) {
   mockWorkspaceId.mockResolvedValue("ws_1");
   mockUserId.mockResolvedValue("user_1");
   mockPrisma.workspace.findUnique.mockResolvedValue({ name: "WS", dmsSentThisPeriod: 0 });

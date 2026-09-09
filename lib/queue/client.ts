@@ -25,8 +25,9 @@ export interface ProcessCommentJob {
   // from. Campaigns are bound to that post, so both ids have to be matched.
   originalMediaId?: string;
   requeueAttempt?: number;
-  // Which path enqueued this comment. Recorded in the shared ProcessedComment
-  // dedup store so the reconciler can tell webhook- from polling-caught comments.
+  // Hangi yol bu yorumu kuyrukladi. YALNIZCA teshis icin: hicbir yerde
+  // OKUNMUYOR. (Eskiden "ProcessedComment dedup deposuna kaydedilir"
+  // yaziyordu — o tablo hic kullanilmadi, bkz. prisma/schema.prisma.)
   source?: CommentSource;
 }
 
