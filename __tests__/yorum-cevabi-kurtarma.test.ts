@@ -4,7 +4,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockPrisma, mockQueueAdd } = vi.hoisted(() => ({
-  mockPrisma: { dmLog: { findMany: vi.fn() } },
+  mockPrisma: {
+    dmLog: { findMany: vi.fn() },
+    queueJob: { findMany: vi.fn() },
+  },
   mockQueueAdd: vi.fn(),
 }));
 
@@ -39,6 +42,8 @@ function kayit(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockQueueAdd.mockResolvedValue({ id: "job1" });
+  // Varsayilan: bugun hicbir kayit denenmemis.
+  mockPrisma.queueJob.findMany.mockResolvedValue([]);
 });
 
 describe("eksikYorumCevaplariniTamamla", () => {
@@ -106,12 +111,36 @@ describe("eksikYorumCevaplariniTamamla", () => {
     expect(jobId).toBe(`yorumcevabi:log1:${new Date().toISOString().slice(0, 10)}`);
   });
 
-  it("tur tavani 'yavas yavas' olacak kadar dusuk", async () => {
-    mockPrisma.dmLog.findMany.mockResolvedValue([]);
+  it("bugun DENENMIS kayitlari atlayip tavana kadar ILERLER", async () => {
+    // Asil kusur buydu: tavan kadar cekip gunluk anahtarla eleyince her tur
+    // AYNI en yeni 15 kayit geliyor, ilk turdan sonra gun boyu SIFIR is
+    // kuyruklaniyordu (12 saatte 205 birikime karsi 26 cevap).
+    const gun = new Date().toISOString().slice(0, 10);
+    const havuz = Array.from({ length: 20 }, (_, i) => kayit({ id: `log${i}` }));
+    mockPrisma.dmLog.findMany.mockResolvedValue(havuz);
+    mockPrisma.queueJob.findMany.mockResolvedValue(
+      havuz.slice(0, 15).map((k) => ({ dedupeKey: `yorumcevabi:${k.id}:${gun}` }))
+    );
 
-    await eksikYorumCevaplariniTamamla();
+    const sonuc = await eksikYorumCevaplariniTamamla(15);
 
-    expect(mockPrisma.dmLog.findMany.mock.calls[0][0].take).toBe(YORUM_TUR_TAVANI);
+    expect(sonuc.kuyruklanan).toBe(5); // eskiden 0 olurdu
+    const anahtarlar = mockQueueAdd.mock.calls.map((c) => c[2].jobId);
+    expect(anahtarlar).not.toContain(`yorumcevabi:log0:${gun}`);
+    expect(anahtarlar).toContain(`yorumcevabi:log15:${gun}`);
+  });
+
+  it("havuzu tavandan GENIS ceker ama kuyruklamayi tavanla sinirlar", async () => {
+    mockPrisma.dmLog.findMany.mockResolvedValue(
+      Array.from({ length: 200 }, (_, i) => kayit({ id: `l${i}` }))
+    );
+
+    const sonuc = await eksikYorumCevaplariniTamamla();
+
+    expect(mockPrisma.dmLog.findMany.mock.calls[0][0].take).toBeGreaterThan(
+      YORUM_TUR_TAVANI
+    );
+    expect(sonuc.kuyruklanan).toBe(YORUM_TUR_TAVANI);
     expect(YORUM_TUR_TAVANI).toBeLessThanOrEqual(25);
   });
 

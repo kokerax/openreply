@@ -27,6 +27,12 @@ const PENCERE_MS = 7 * 24 * 3600_000;
  */
 export const YORUM_TUR_TAVANI = 15;
 
+/**
+ * Aday havuzunu tavanin kac kati cekecegiz. Bugun denenmisleri eleyip
+ * tavana kadar ilerleyebilmek icin gerekli; 1 kat oldugunda tur bosa gidiyordu.
+ */
+const HAVUZ_KATI = 12;
+
 export interface YorumCevabiSonucu {
   aday: number;
   kuyruklanan: number;
@@ -43,7 +49,14 @@ export async function eksikYorumCevaplariniTamamla(
   limit: number = YORUM_TUR_TAVANI,
   kuruDeneme = false
 ): Promise<YorumCevabiSonucu> {
-  const adaylar = await prisma.dmLog.findMany({
+  const gun = new Date().toISOString().slice(0, 10);
+
+  // Adaylari tavandan GENIS cek. Sebep olculdu: tavan kadar cekip gunluk
+  // tekillestirme anahtari uygulayinca her tur AYNI en yeni 15 kayit
+  // geliyordu; ilk turdan sonra hepsi "bugun denendi" diye eleniyor ve gun
+  // boyu SIFIR is kuyruklaniyordu. 12 saatte 205 birikime karsi yalnizca 26
+  // cevap gitmisti. Genis cekip bugun denenmisleri eleyerek ilerliyoruz.
+  const havuz = await prisma.dmLog.findMany({
     where: {
       status: "SENT",
       isBackfill: false,
@@ -59,8 +72,23 @@ export async function eksikYorumCevaplariniTamamla(
     },
     // En yenisi once: yorum ne kadar tazeyse cevap o kadar dogal gorunur.
     orderBy: { createdAt: "desc" },
-    take: limit,
+    take: limit * HAVUZ_KATI,
   });
+
+  // Bugun zaten kuyruklanmislar elenir. `queue.add` mukerrer anahtarda null
+  // dondugu icin bu olmadan da mukerrer IS olusmuyordu, ama tur bosa gidiyordu.
+  const bugunDenenen = new Set(
+    (
+      await prisma.queueJob.findMany({
+        where: { dedupeKey: { in: havuz.map((k) => `yorumcevabi:${k.id}:${gun}`) } },
+        select: { dedupeKey: true },
+      })
+    ).map((j) => j.dedupeKey)
+  );
+
+  const adaylar = havuz
+    .filter((k) => !bugunDenenen.has(`yorumcevabi:${k.id}:${gun}`))
+    .slice(0, limit);
 
   // Metni olmayan kampanyayi kuyruklamak bosuna tur harcar: worker
   // `replyPool.length > 0` sartini gecemez ve kayit yarin yine aday olur.
@@ -99,7 +127,7 @@ export async function eksikYorumCevaplariniTamamla(
       {
         // Gun basina tek deneme: ayni kayit her turda yeniden kuyruklanip
         // yorum bolumune ayni cevabi yagdirmasin.
-        jobId: `yorumcevabi:${kayit.id}:${new Date().toISOString().slice(0, 10)}`,
+        jobId: `yorumcevabi:${kayit.id}:${gun}`,
       }
     );
     // `add` mukerrer anahtarda null doner; o kayit bugun zaten denenmis.
