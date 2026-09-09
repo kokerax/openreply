@@ -230,6 +230,27 @@ async function sweepCampaign(
     });
     const handledSet = new Set(handled.map((h) => h.commentId));
 
+    // UCUNCU koruma: ISI UCUSTA OLAN yorumu tekrar kuyruklama.
+    //
+    // `handled` yalnizca BITMIS isi eliyor (SENT / publicReplySentAt). Webhook
+    // yolu DM'i gondermeden once satiri PENDING yaziyor; bes dakika sonraki
+    // tarama o satiri "bitmemis" gorup ayni yorumu tekrar kuyrukluyordu.
+    // Worker'da `alreadyDmd = status === "SENT"` oldugu icin PENDING bir kayit
+    // `needsDm` sayiliyor ve IKINCI DM gidiyordu. Hiz sinirina takilip
+    // gecikmeli yeniden denemeye birakilan isler bu pencereyi bir saate kadar
+    // aciyor, o yuzden zaman esigi degil KUYRUGUN KENDISI sorgulanıyor.
+    //
+    // Reklam yolu tam olarak iki yolun cakistigi yer: webhook ve tarama ayni
+    // reklam yorumunu birlikte gorur.
+    const ucustaki = await prisma.$queryRaw<{ commentId: string }[]>`
+      SELECT DISTINCT data->>'commentId' AS "commentId"
+      FROM "QueueJob"
+      WHERE name = 'process-comment'
+        AND status IN ('PENDING', 'ACTIVE')
+        AND data->>'commentId' = ANY(${needsAction.map((c) => c.id)})
+    `;
+    for (const u of ucustaki) handledSet.add(u.commentId);
+
     // Oldest first, so whoever commented earliest gets answered first, capped.
     const fresh = needsAction
       .filter((c) => !handledSet.has(c.id))

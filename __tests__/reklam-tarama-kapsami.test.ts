@@ -56,6 +56,35 @@ describe("matchAnyPost dali reklam kopyalarini kapsar", () => {
   });
 });
 
+describe("ucusta olan isi tekrar kuyruklama korumasi", () => {
+  const src = kodu(oku("lib/polling/comment-reconciler.ts"));
+
+  it("kuyrukta bekleyen/calisan isin yorumu handledSet'e EKLENIR", () => {
+    // Isim aramak yetmez: sonuclarin gercekten eleme kumesine katildigini
+    // gosteren ATAMA aranıyor.
+    expect(src).toMatch(/handledSet\.add\(/);
+    expect(src).toMatch(/for\s*\(const\s+\w+\s+of\s+ucustaki\)/);
+  });
+
+  it("yalnizca PENDING/ACTIVE isler elenir — biten is elenmez", () => {
+    const i = src.indexOf("const ucustaki");
+    expect(i).toBeGreaterThan(-1);
+    const sorgu = src.slice(i, i + 600);
+    expect(sorgu).toContain("'PENDING', 'ACTIVE'");
+    // DONE elenirse basarisiz kalmis yorum bir daha ASLA denenmez.
+    expect(sorgu).not.toContain("'DONE'");
+    expect(sorgu).toContain("process-comment");
+  });
+
+  it("koruma, aday listesi SUZULMEDEN once uygulanir", () => {
+    // Sonra uygulanirsa hicbir sey elemez.
+    const korumaYeri = src.indexOf("handledSet.add(");
+    const suzmeYeri = src.indexOf("const fresh = needsAction");
+    expect(korumaYeri).toBeGreaterThan(-1);
+    expect(suzmeYeri).toBeGreaterThan(korumaYeri);
+  });
+});
+
 describe("teslimat denetimi reklam korlugu", () => {
   const src = kodu(oku("app/api/cron/teslimat-denetimi/route.ts"));
 
