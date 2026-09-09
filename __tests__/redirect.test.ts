@@ -27,9 +27,11 @@ describe("tracked link redirect route", () => {
       id: "link_123",
       workspaceId: "workspace_123",
       automationId: "automation_123",
+      slug: "abc123",
       destinationUrl: "https://example.com/offer",
       automation: {
         instagramAccountId: "instagram_account_123",
+        name: "Yaz Kampanyası",
       },
     });
     mockPrisma.linkClick.create.mockResolvedValue({});
@@ -46,7 +48,14 @@ describe("tracked link redirect route", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("https://example.com/offer");
+    // Hedef korunur, uzerine UTM etiketleri eklenir: tiklamayi biz sayiyoruz
+    // ama kullanicinin kendi analitigi bu trafigi atifsiz goruyordu.
+    const hedef = new URL(response.headers.get("location")!);
+    expect(hedef.origin + hedef.pathname).toBe("https://example.com/offer");
+    expect(hedef.searchParams.get("utm_source")).toBe("instagram");
+    expect(hedef.searchParams.get("utm_medium")).toBe("openreply");
+    expect(hedef.searchParams.get("utm_campaign")).toBe("yaz-kampanyasi");
+    expect(hedef.searchParams.get("utm_content")).toBe("abc123");
     expect(mockPrisma.trackedLink.findUnique).toHaveBeenCalledWith({
       where: { slug: "abc123" },
       select: expect.any(Object),

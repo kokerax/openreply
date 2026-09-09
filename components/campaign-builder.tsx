@@ -22,6 +22,7 @@ import StatusBadge from "@/components/status-badge";
 import { useToast } from "@/components/toast";
 import { readCache, writeCache } from "@/lib/client-cache";
 import type { CampaignTemplate } from "@/lib/templates/campaign-templates";
+import { hedefeUtmEkle } from "@/lib/tracking/utm";
 import {
   IMPORT_QUEUE_KEY,
   IMPORT_ACCOUNT_KEY,
@@ -1217,6 +1218,23 @@ export default function CampaignBuilder({
                 {fieldErrors.trackedDestinationUrl && (
                   <p className="field-error">{fieldErrors.trackedDestinationUrl}</p>
                 )}
+                {/* Tiklayanin GERCEKTEN gordugu adresi goster. UTM'i sessizce
+                    ekleyip kullaniciyi haberdar etmemek, kendi analitiginde
+                    beklemedigi parametreler gormesine yol acardi. */}
+                {trackedDestinationUrl.trim() &&
+                  isHttpUrl(trackedDestinationUrl.trim()) && (
+                    <p className="text-xs leading-5 text-muted">
+                      Visitors land on{" "}
+                      <span className="break-all font-mono text-foreground">
+                        {hedefeUtmEkle(trackedDestinationUrl.trim(), {
+                          kampanyaAdi: name,
+                          slug: "…",
+                        })}
+                      </span>{" "}
+                      — UTM tags are added so this traffic shows up in your own
+                      analytics. Set a tag yourself to override it.
+                    </p>
+                  )}
                 <input
                   value={linkButtonLabel}
                   onChange={(e) => setLinkButtonLabel(e.target.value)}
