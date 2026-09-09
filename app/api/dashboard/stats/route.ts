@@ -170,6 +170,9 @@ export async function GET(request: NextRequest) {
           workspaceId,
           // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
           isBackfill: false,
+          // "Skipped" ve "Failed" kartlari da kampanya sonucunu anlatiyor:
+          // 12 "failed" gorunuyordu, biri sentetik defter satiriydi.
+          ...SADECE_YORUM,
           ...inRange,
           ...accountFilter,
         },
@@ -192,6 +195,9 @@ export async function GET(request: NextRequest) {
           workspaceId,
           // Goc muhurleri bu sistemin gonderimi DEGIL — sayimdan cikar.
           isBackfill: false,
+          // Defter satirlarinin 3'unde matchedKeyword DOLU: "hangi kelime
+          // calisiyor" listesini sisiriyorlardi.
+          ...SADECE_YORUM,
           matchedKeyword: { not: null },
           ...accountFilter,
         },

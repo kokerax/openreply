@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { SADECE_YORUM } from "@/lib/queue/dmlog-kayit-turu";
 import {
   calculateCtr,
   normalizeTopKeywords,
@@ -68,30 +69,38 @@ export async function getCampaignReportBySlug(shareSlug: string) {
     return null;
   }
 
-  const [statusRows, clickCount, keywordRows, latestSentLog] =
+  const [statusRows, clickGruplari, keywordRows, latestSentLog] =
     await Promise.all([
       prisma.dmLog.groupBy({
         by: ["status"],
         where: {
           // Goc muhurleri bu sistemin gonderimi DEGIL.
-      isBackfill: false,
-      workspaceId: automation.workspaceId,
+          isBackfill: false,
+          // Sentetik defter satirlari (reveal:/emailgate:) kampanya
+          // gonderimi degil, takip mesaji. Bu rapor MUSTERIYE gidiyor:
+          // yanlis evren burada en yuksek bedelli.
+          ...SADECE_YORUM,
+          workspaceId: automation.workspaceId,
           automationId: automation.id,
         },
         _count: { _all: true },
       }),
-      prisma.linkClick.count({
+      // `ipHash` ile kiriliyor: CTR paydasi kisi sayisi, payi da oyle olmali.
+      prisma.linkClick.groupBy({
+        by: ["ipHash"],
         where: {
           workspaceId: automation.workspaceId,
           automationId: automation.id,
         },
+        _count: { _all: true },
       }),
       prisma.dmLog.groupBy({
         by: ["matchedKeyword"],
         where: {
           // Goc muhurleri bu sistemin gonderimi DEGIL.
-      isBackfill: false,
-      workspaceId: automation.workspaceId,
+          isBackfill: false,
+          ...SADECE_YORUM,
+          workspaceId: automation.workspaceId,
           automationId: automation.id,
           matchedKeyword: { not: null },
         },
@@ -110,6 +119,14 @@ export async function getCampaignReportBySlug(shareSlug: string) {
         select: { dmSentAt: true, createdAt: true },
       }),
     ]);
+
+  // `ipHash` yazilmadan onceki satirlar tekillestirilemez; hepsini "bir kisi"
+  // saymak donusumu OLDUGUNDAN DUSUK gosterirdi.
+  const toplamTiklama = clickGruplari.reduce((t, g) => t + g._count._all, 0);
+  const tekilTiklama = clickGruplari.reduce(
+    (t, g) => t + (g.ipHash === null ? g._count._all : 1),
+    0
+  );
 
   const statusSummary = summarizeDmStatuses(
     statusRows.map((row) => ({
@@ -131,8 +148,10 @@ export async function getCampaignReportBySlug(shareSlug: string) {
         prisma.dmLog.count({
           where: {
             // Goc muhurleri bu sistemin gonderimi DEGIL.
-      isBackfill: false,
-      workspaceId: automation.workspaceId,
+            isBackfill: false,
+            // Grafik ve toplam ayni evrenden; yoksa rapor kendi icinde celisir.
+            ...SADECE_YORUM,
+            workspaceId: automation.workspaceId,
             automationId: automation.id,
             status: "SENT",
             createdAt: { gte: start, lt: end },
@@ -180,8 +199,10 @@ export async function getCampaignReportBySlug(shareSlug: string) {
       sent: statusSummary.sent,
       skipped: statusSummary.skipped,
       failed: statusSummary.failed,
-      clicks: clickCount,
-      ctr: calculateCtr(clickCount, statusSummary.sent),
+      clicks: toplamTiklama,
+      uniqueClicks: tekilTiklama,
+      // Pay TEKIL tiklayan, payda yoruma gonderilen DM: ayni evren.
+      ctr: calculateCtr(tekilTiklama, statusSummary.sent),
       latestSentAt: latestSentLog?.dmSentAt ?? latestSentLog?.createdAt ?? null,
     },
     topKeywords,

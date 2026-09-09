@@ -211,7 +211,12 @@ export async function GET(request: NextRequest) {
     }),
     prisma.dmLog.groupBy({
       by: ["automationId", "matchedKeyword"],
-      where: { workspaceId, isBackfill: false, matchedKeyword: { not: null } },
+      where: {
+        workspaceId,
+        isBackfill: false,
+        ...SADECE_YORUM,
+        matchedKeyword: { not: null },
+      },
       _count: { _all: true },
     }),
   ]);

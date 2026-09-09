@@ -12,6 +12,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     },
     linkClick: {
       count: vi.fn(),
+      groupBy: vi.fn(),
     },
   },
 }));
@@ -64,6 +65,9 @@ beforeEach(() => {
       { matchedKeyword: "SHOP", _count: { _all: 6 } },
     ]);
   mockPrisma.linkClick.count.mockResolvedValue(12);
+  mockPrisma.linkClick.groupBy.mockResolvedValue(
+    Array.from({ length: 12 }, (_, i) => ({ ipHash: `kisi${i}`, _count: { _all: 1 } }))
+  );
   mockPrisma.dmLog.findFirst.mockResolvedValue({
     dmSentAt: new Date("2026-05-20T12:00:00.000Z"),
     createdAt: new Date("2026-05-20T12:00:00.000Z"),
@@ -103,6 +107,56 @@ describe("campaign reports", () => {
     });
     expect(report?.daily).toHaveLength(7);
     expect("dmMessage" in (report?.campaign ?? {})).toBe(false);
+  });
+
+  it("MUSTERIYE giden rapor sentetik defter satirlarini SAYMAZ", async () => {
+    // Bu rapor musteriye paylasilan baglantiyla gidiyor — ayni "yanlis
+    // evreni say" hatasinin en yuksek bedelli kopyasi. Panelde CTR'i
+    // %28,7 gosteren hata burada da duruyordu.
+    mockPrisma.automation.findFirst.mockResolvedValue(baseAutomation);
+    mockPrisma.dmLog.groupBy.mockReset();
+    mockPrisma.dmLog.groupBy.mockResolvedValue([]);
+    mockPrisma.dmLog.findFirst.mockResolvedValue(null);
+    mockPrisma.dmLog.count.mockResolvedValue(0);
+    mockPrisma.linkClick.count.mockResolvedValue(0);
+    mockPrisma.linkClick.groupBy.mockResolvedValue([]);
+
+    await getCampaignReportBySlug("report_123");
+
+    const durumSorgusu = mockPrisma.dmLog.groupBy.mock.calls
+      .map((c) => c[0])
+      .find((a) => a.by.includes("status"));
+    expect(durumSorgusu.where.isBackfill).toBe(false);
+    expect(durumSorgusu.where.commentId).toEqual({ not: { contains: ":" } });
+
+    // Gunluk seri de ayni evrenden — yoksa toplam ile grafik celisirdi.
+    for (const cagri of mockPrisma.dmLog.count.mock.calls) {
+      expect(cagri[0].where.commentId).toEqual({ not: { contains: ":" } });
+    }
+  });
+
+  it("rapor CTR'i TEKIL tiklayandan hesaplanir", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(baseAutomation);
+    // `beforeEach`'teki `mockResolvedValueOnce` kuyrugu implementasyondan
+    // ONCE tuketiliyor; sifirlamazsak bu test onun sayilarini olcer.
+    mockPrisma.dmLog.groupBy.mockReset();
+    mockPrisma.dmLog.groupBy.mockImplementation(async (a: { by: string[] }) =>
+      a.by.includes("status") ? [{ status: "SENT", _count: { _all: 10 } }] : []
+    );
+    mockPrisma.dmLog.findFirst.mockResolvedValue(null);
+    mockPrisma.dmLog.count.mockResolvedValue(0);
+    // 5 tiklama ama 2 kisi.
+    mockPrisma.linkClick.groupBy.mockResolvedValue([
+      { ipHash: "a", _count: { _all: 4 } },
+      { ipHash: "b", _count: { _all: 1 } },
+    ]);
+
+    const rapor = await getCampaignReportBySlug("report_123");
+
+    expect(rapor!.metrics.clicks).toBe(5);
+    expect(rapor!.metrics.uniqueClicks).toBe(2);
+    // 2/10 = %20; toplamla %50 derdi.
+    expect(rapor!.metrics.ctr).toBe(20);
   });
 
   it("returns null when a report slug is missing or disabled", async () => {
