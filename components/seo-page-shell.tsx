@@ -7,6 +7,11 @@ export interface SeoPageSection {
 }
 
 export interface SeoPageConfig {
+  /**
+   * Sayfanin kendi yolu. "Ilgili sayfalar" bloğu kendini haric tutabilsin
+   * diye gerekli — elle liste tutmak yerine kayittan turetiliyor.
+   */
+  path: string;
   eyebrow: string;
   title: string;
   description: string;
@@ -36,6 +41,26 @@ export interface SeoPageConfig {
  * UYDURULMUYOR — birebir ayni config kullaniliyor, yoksa isaretleme ile
  * gorunen icerik ayrisir ve bu Google'in aciktan yasakladigi seydir.
  */
+/**
+ * Pazarlama sayfalari — "ilgili sayfalar" blogu bu kayittan turetilir.
+ *
+ * Olculdu (2026-09-09): her sayfa digerlerinin yalnizca 1-2'sine link
+ * veriyordu, o da paylasilan basliktan. `/manychat-alternative`,
+ * `/comment-link-automation` ve `/instagram-comment-to-dm-templates` hicbir
+ * SEO sayfasindan link ALMIYORDU. Ic link, konu olarak yakin sayfalar
+ * arasinda hem kesfedilebilirlik hem siralama sinyalidir.
+ *
+ * Elle liste tutmak yerine kayittan turetiliyor: yeni sayfa eklenince
+ * digerlerinden otomatik link alir.
+ */
+export const SEO_SAYFALARI: { path: string; etiket: string }[] = [
+  { path: "/manychat-alternative", etiket: "Manychat alternative" },
+  { path: "/comment-link-automation", etiket: "Comment LINK automation" },
+  { path: "/instagram-dm-automation-agencies", etiket: "DM automation for agencies" },
+  { path: "/instagram-comment-to-dm-templates", etiket: "Comment-to-DM templates" },
+  { path: "/templates", etiket: "All campaign templates" },
+];
+
 function faqYapisalVeri(config: SeoPageConfig) {
   return {
     "@context": "https://schema.org",
@@ -171,6 +196,24 @@ export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
               className="border border-white/10 bg-white/[0.035] p-5 text-sm font-semibold text-white transition hover:border-cyan-200/30 hover:bg-cyan-300/10"
             >
               {link.label}
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* Ilgili sayfalar — kendisi haric. */}
+      <section className="mx-auto w-full max-w-7xl px-5 pb-4 sm:px-6 lg:px-8">
+        <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+          Related
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {SEO_SAYFALARI.filter((s) => s.path !== config.path).map((s) => (
+            <Link
+              key={s.path}
+              href={s.path}
+              className="border border-white/10 bg-white/[0.035] px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-cyan-200/30 hover:bg-cyan-300/10 hover:text-white"
+            >
+              {s.etiket}
             </Link>
           ))}
         </div>

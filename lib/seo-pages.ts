@@ -8,6 +8,7 @@ const templateLinks = [
 ];
 
 export const manychatAlternativePage: SeoPageConfig = {
+  path: "/manychat-alternative",
   eyebrow: "Manychat alternative",
   title: "A focused Manychat alternative for Instagram comment-to-DM campaigns",
   description:
@@ -65,6 +66,7 @@ export const manychatAlternativePage: SeoPageConfig = {
 };
 
 export const templatesSeoPage: SeoPageConfig = {
+  path: "/instagram-comment-to-dm-templates",
   eyebrow: "Instagram comment-to-DM templates",
   title: "Instagram comment-to-DM templates for high-intent campaign replies",
   description:
@@ -122,6 +124,7 @@ export const templatesSeoPage: SeoPageConfig = {
 };
 
 export const agenciesSeoPage: SeoPageConfig = {
+  path: "/instagram-dm-automation-agencies",
   eyebrow: "Instagram DM automation for agencies",
   title: "Instagram DM automation for agencies managing client campaigns",
   description:
@@ -179,6 +182,7 @@ export const agenciesSeoPage: SeoPageConfig = {
 };
 
 export const commentLinkSeoPage: SeoPageConfig = {
+  path: "/comment-link-automation",
   eyebrow: "Comment LINK automation",
   title: "Comment LINK automation for Instagram posts and reels",
   description:

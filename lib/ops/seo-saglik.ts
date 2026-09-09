@@ -122,6 +122,34 @@ export async function seoSagligiOl(): Promise<SeoSaglik> {
     });
   }
 
+  // 3b) SEO sayfalari BIRBIRINE link veriyor mu.
+  // Olculdu: her sayfa digerlerinin yalnizca 1-2'sine link veriyordu ve uc
+  // sayfa hicbir SEO sayfasindan link ALMIYORDU. Ornek sayfada bakmak yeter:
+  // blok paylasilan kabuktan geliyor, dusserse hepsinde duser.
+  if (ornek.ok) {
+    const digerleri = [
+      "/comment-link-automation",
+      "/instagram-dm-automation-agencies",
+      "/instagram-comment-to-dm-templates",
+      "/templates",
+    ];
+    const eksik = digerleri.filter((h) => !ornek.govde.includes(`href="${h}"`));
+    kontroller.push({
+      ad: "sayfalar arasi link",
+      durum: eksik.length === 0 ? "gecti" : "kaldi",
+      detay:
+        eksik.length === 0
+          ? `${digerleri.length} kardes sayfa linkli`
+          : `link yok: ${eksik.join(", ")}`,
+    });
+  } else {
+    kontroller.push({
+      ad: "sayfalar arasi link",
+      durum: "belirsiz",
+      detay: `ornek sayfa HTTP ${ornek.durum}`,
+    });
+  }
+
   // 3) Ic link: oksuz sayfalar ana sayfadan link almali, yoksa kesfedilemez.
   if (!anasayfa.ok) {
     kontroller.push({ ad: "ic link", durum: "belirsiz", detay: `ana sayfa HTTP ${anasayfa.durum}` });

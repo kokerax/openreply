@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PublicSiteHeader from "@/components/public-site-header";
+import { SEO_SAYFALARI } from "@/components/seo-page-shell";
 import TemplateVisual from "@/components/template-visual";
 import { CAMPAIGN_TEMPLATES } from "@/lib/templates/campaign-templates";
 
@@ -30,6 +31,24 @@ export default function TemplatesPage() {
     // beyaz uzerine beyaz yazi cikiyor.
     <main className="dark min-h-screen bg-background text-foreground">
       <PublicSiteHeader active="templates" />
+
+      {/* Ilgili sayfalar — SEO sayfalari birbirine link vermiyordu. */}
+      <section className="mx-auto w-full max-w-7xl px-5 pt-8 sm:px-6 lg:px-8">
+        <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+          Related
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {SEO_SAYFALARI.filter((s) => s.path !== "/templates").map((s) => (
+            <Link
+              key={s.path}
+              href={s.path}
+              className="border border-white/10 bg-white/[0.035] px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-cyan-200/30 hover:bg-cyan-300/10 hover:text-white"
+            >
+              {s.etiket}
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <section className="border-b border-white/10 bg-zinc-950/55">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-5 py-16 sm:px-6 lg:grid-cols-[0.88fr_1.12fr] lg:px-8 lg:py-20">

@@ -6,6 +6,8 @@
  * OLMAMALI. Tek yonlu "liste bos degil" asserti hicbir sey kanitlamaz.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 
 const ESKI_URL = process.env.NEXTAUTH_URL;
 
@@ -87,6 +89,35 @@ describe("sitemap", () => {
     for (const e of girdiler) {
       expect(e.priority ?? 0).toBeLessThanOrEqual(ana?.priority ?? 0);
     }
+  });
+});
+
+describe("SEO sayfalari birbirine link verir", () => {
+  it("kayittaki her sayfa sitemap'te de var", () => {
+    // Ic link kaydi ile sitemap ayrisirsa, link verilen sayfa taranmayabilir.
+    const src = fs.readFileSync(
+      path.join(process.cwd(), "components/seo-page-shell.tsx"),
+      "utf8"
+    );
+    const i = src.indexOf("export const SEO_SAYFALARI");
+    expect(i).toBeGreaterThan(-1);
+    const blok = src.slice(i, src.indexOf("];", i));
+    const yollar = [...blok.matchAll(/path: "([^"]+)"/g)].map((m) => m[1]);
+
+    expect(yollar.length).toBeGreaterThanOrEqual(5);
+    return sitemapGetir().then((girdiler) => {
+      const sitemapYollari = girdiler.map((e) => new URL(e.url).pathname);
+      for (const y of yollar) expect(sitemapYollari).toContain(y);
+    });
+  });
+
+  it("kabuk kendi sayfasini ILGILI listesinden cikarir", () => {
+    const src = fs.readFileSync(
+      path.join(process.cwd(), "components/seo-page-shell.tsx"),
+      "utf8"
+    );
+    // Kendine link vermek hem gereksiz hem de kullaniciyi ayni sayfaya atar.
+    expect(src).toMatch(/SEO_SAYFALARI\.filter\(\(s\) => s\.path !== config\.path\)/);
   });
 });
 

@@ -17,11 +17,12 @@ const SAGLAM_SITEMAP = `<urlset>
   <url><loc>${TABAN}/templates/dtc-product-link</loc></url>
 </urlset>`;
 const SAGLAM_ROBOTS = `User-Agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${TABAN}/sitemap.xml`;
+const KARDES_LINKLER = `<a href="/comment-link-automation">a</a><a href="/instagram-dm-automation-agencies">b</a><a href="/instagram-comment-to-dm-templates">c</a><a href="/templates">d</a>`;
 const SAGLAM_SAYFA = `<html><head>
   <meta property="og:url" content="${TABAN}/manychat-alternative">
   <link rel="canonical" href="${TABAN}/manychat-alternative">
   <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[{"@type":"Question"},{"@type":"Question"}]}</script>
-</head></html>`;
+</head><body>${KARDES_LINKLER}</body></html>`;
 const SAGLAM_ANASAYFA = `<a href="/manychat-alternative">a</a><a href="/comment-link-automation">b</a>
   <a href="/instagram-dm-automation-agencies">c</a><a href="/templates">d</a>`;
 
@@ -122,6 +123,24 @@ describe("bozukta KIRMIZI — her kusur ayri ayri", () => {
     expect(durum(await seoSagligiOl(), "FAQ isaretlemesi")).toBe("kaldi");
   });
 
+  it("KARDES sayfa linki dusrse yakalar", async () => {
+    // Blok paylasilan kabuktan geliyor: dusserse dort sayfada birden duser.
+    fetchKur({
+      ...SAGLAM,
+      "/manychat-alternative": SAGLAM_SAYFA.replace(
+        '<a href="/comment-link-automation">a</a>',
+        ""
+      ),
+    });
+
+    const s = await seoSagligiOl();
+
+    expect(durum(s, "sayfalar arasi link")).toBe("kaldi");
+    expect(s.kontroller.find((k) => k.ad === "sayfalar arasi link")?.detay).toContain(
+      "/comment-link-automation"
+    );
+  });
+
   it("ic link dusrse yakalar ve HANGISININ dustugunu yazar", async () => {
     fetchKur({ ...SAGLAM, "/": '<a href="/templates">d</a>' });
     const s = await seoSagligiOl();
@@ -140,10 +159,10 @@ describe("ucuncu durum: BELIRSIZ", () => {
 
     const s = await seoSagligiOl();
 
-    for (const ad of ["og:url mutlak", "canonical", "FAQ isaretlemesi"]) {
+    for (const ad of ["og:url mutlak", "canonical", "FAQ isaretlemesi", "sayfalar arasi link"]) {
       expect(durum(s, ad)).toBe("belirsiz");
     }
-    expect(s.belirsiz).toBe(3);
+    expect(s.belirsiz).toBe(4);
     // Cekilebilen sayfalar hala dogru degerlendirilir.
     expect(durum(s, "sitemap.xml")).toBe("gecti");
   });
