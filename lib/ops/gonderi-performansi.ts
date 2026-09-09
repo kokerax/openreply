@@ -58,8 +58,17 @@ export async function gonderiPerformansi(
   toExclusive: Date,
   instagramAccountId?: string
 ): Promise<GonderiPerformansi> {
+  // YALNIZCA `mediaId` ile gruplaniyor. Onceki surum `(mediaId,
+  // originalMediaId)` ile grupluyordu ama omur haritasi yalnizca `mediaId`
+  // ile anahtarliydi: ayni gonderi hem reklamli hem reklamsiz satir tasirsa
+  // listede IKI KEZ cikip HER IKI satir da TAM omur sayisini tasirdi —
+  // gosterilen donusum toplami gercegin iki katina cikar ve tavandan iki
+  // yer yerdi. `originalMediaId` webhook'ta bos gelip tarayicida
+  // cozulebildigi icin iki sekil ayni medyada bir arada bulunabilir.
+  // Reklam isareti `_max` ile turetiliyor: satirlardan BIRI bile reklamsa
+  // gonderi reklamdir.
   const gruplar = await prisma.dmLog.groupBy({
-    by: ["mediaId", "originalMediaId"],
+    by: ["mediaId"],
     where: {
       workspaceId,
       // Goc muhurleri bu sistemin gonderimi degil.
@@ -72,12 +81,13 @@ export async function gonderiPerformansi(
       ...(instagramAccountId ? { instagramAccountId } : {}),
     },
     _count: { _all: true },
+    _max: { originalMediaId: true },
   });
 
   const siralanmis = gruplar
     .map((g) => ({
       mediaId: g.mediaId as string,
-      reklam: Boolean(g.originalMediaId),
+      reklam: Boolean(g._max?.originalMediaId),
       dm: g._count._all,
     }))
     .sort((a, b) => b.dm - a.dm);

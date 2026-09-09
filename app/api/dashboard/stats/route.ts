@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       workspace,
       instagramAccount,
       instagramAccounts,
-      sonWebhookOlayi,
+      webhookTazeligi,
       totalAutomations,
       activeAutomations,
       dmsSentToday,
@@ -114,11 +114,19 @@ export async function GET(request: NextRequest) {
       // Webhook rozeti BAYRAKTAN degil davranistan turuyor: bayrak yalnizca
       // OAuth aninda yaziliyor ve bayatlayabiliyor (canli: bayrak false iken
       // 24 saatte 502 olay geldi).
-      prisma.webhookEvent.findFirst({
-        where: { workspaceId },
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-      }),
+      //
+      // HESAP BASINA olculuyor. Tek bir `findFirst({where:{workspaceId}})`
+      // iki sorun tasiyordu: (a) cok hesapli bir calisma alaninda SESSIZ
+      // hesap, mesgul hesabin tazeligini miras alirdi; (b) olaylarin %82'si
+      // `workspaceId = null` (kendi yankimiz ve akis disi mesajlar), yani
+      // filtre teslimatin buyuk kismini gormuyordu. Yuk zaten hedef hesabin
+      // kimligini tasiyor: `entry[0].id`.
+      prisma.$queryRaw<{ ig: string | null; son: Date }[]>`
+        SELECT payload->'entry'->0->>'id' AS ig, MAX("createdAt") AS son
+        FROM "WebhookEvent"
+        WHERE "createdAt" > now() - interval '48 hours'
+        GROUP BY 1
+      `,
       prisma.automation.count({ where: { workspaceId, ...accountFilter } }),
       prisma.automation.count({
         where: { workspaceId, isActive: true, ...accountFilter },
@@ -254,6 +262,17 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    /**
+     * IG hesap kimligi -> o hesaba gelen SON webhook olayi.
+     *
+     * Yuk hedef hesabin kimligini tasiyor (`entry[0].id`), o yuzden tazelik
+     * HESAP BASINA olculebiliyor: sessiz bir hesap mesgul hesabin rozetini
+     * miras almiyor.
+     */
+    const webhookSonOlay = new Map(
+      webhookTazeligi.filter((r) => r.ig).map((r) => [r.ig as string, r.son])
+    );
+
     // Sifir dolgulu gunluk seri, KULLANICININ bolgesindeki takvim gunune gore.
     // Iskelet hala UTC gunlerinden uretiliyor (aralik sinirlari oyle); +03 gibi
     // bolgelerde araligin son UTC gununun son saatleri BIR SONRAKI yerel gune
@@ -346,7 +365,7 @@ export async function GET(request: NextRequest) {
           // gizlemek yerine ayri bir durum olarak veriyoruz.
           webhookDurumu: webhookDurumu(
             h.webhookSubscribed,
-            sonWebhookOlayi?.createdAt ?? null,
+            webhookSonOlay.get(h.instagramId) ?? null,
             now
           ),
         })),

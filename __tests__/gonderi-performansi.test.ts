@@ -31,7 +31,15 @@ const FROM = new Date("2026-08-01T00:00:00Z");
 const TO = new Date("2026-09-01T00:00:00Z");
 
 function grup(mediaId: string, adet: number, originalMediaId: string | null = null) {
-  return { mediaId, originalMediaId, _count: { _all: adet } };
+  // Uretim artik yalnizca `mediaId` ile grupluyor ve reklam isaretini
+  // `_max.originalMediaId` ile turetiyor; fixture ikisini de tasiyor ki
+  // sorgu sekli degisirse test farkinda olsun.
+  return {
+    mediaId,
+    originalMediaId,
+    _count: { _all: adet },
+    _max: { originalMediaId },
+  };
 }
 
 beforeEach(() => {
@@ -82,6 +90,68 @@ describe("siralama ve reklam isareti", () => {
     expect(s.satirlar.length).toBe(GONDERI_TAVANI);
     // Kac birim islendigi gizlenmez: 8 gosteriyoruz ama 30 var.
     expect(s.toplamGonderi).toBe(30);
+  });
+});
+
+describe("bir gonderi LISTEDE BIR KEZ gorunur", () => {
+  it("aralik sorgusu YALNIZCA mediaId ile gruplar — tekrar satir IMKANSIZ", async () => {
+    // Onceki surum `(mediaId, originalMediaId)` ile grupluyordu ama omur
+    // haritasi yalnizca `mediaId` ile anahtarliydi: ayni gonderi hem
+    // reklamli hem reklamsiz satir tasirsa listede IKI KEZ cikar ve HER IKI
+    // satir da TAM omur sayisini tasirdi — gosterilen donusum toplami
+    // gercegin iki katina cikar, tavandan iki yer yerdi.
+    // `originalMediaId` webhook'ta bos gelip tarayicida cozulebildigi icin
+    // iki sekil ayni medyada bir arada bulunabilir.
+    //
+    // Tekrar satiri "birlestirerek" degil, GRUPLAMAYI DARALTARAK imkansiz
+    // kiliyoruz: Prisma `by: ["mediaId"]` ile ayni id icin tek satir doner.
+    mockPrisma.dmLog.groupBy.mockResolvedValue([]);
+
+    await gonderiPerformansi("ws", FROM, TO);
+
+    const aralik = mockPrisma.dmLog.groupBy.mock.calls
+      .map((c) => c[0])
+      .find((a: GroupArgs) => a.where.createdAt);
+    expect(aralik.by).toEqual(["mediaId"]);
+    // Reklam isareti artik satirin kendisinden degil `_max`ten geliyor.
+    expect(aralik._max).toEqual({ originalMediaId: true });
+  });
+
+  it("omur sayisi TEK satira uygulanir, ikiye bolunmez", async () => {
+    mockPrisma.dmLog.groupBy.mockImplementation(async (args: GroupArgs) =>
+      args.where.createdAt ? [grup("M", 100)] : [grup("M", 300)]
+    );
+    mockGetMedia.mockResolvedValue({ permalink: "p", comments_count: 1000 });
+
+    const s = await gonderiPerformansi("ws", FROM, TO);
+
+    expect(s.satirlar).toHaveLength(1);
+    expect(s.satirlar[0].dm).toBe(100);
+    expect(s.satirlar[0].dmOmur).toBe(300);
+    expect(s.satirlar[0].donusum).toBe(30);
+    expect(s.toplamGonderi).toBe(1);
+  });
+
+  it("KARSI YON: satirlarin HEPSI reklamsizsa reklam isareti YOK", async () => {
+    mockPrisma.dmLog.groupBy.mockImplementation(async (args: GroupArgs) =>
+      args.where.createdAt ? [grup("M", 10)] : [grup("M", 10)]
+    );
+    mockGetMedia.mockResolvedValue({ permalink: "p" });
+
+    const s = await gonderiPerformansi("ws", FROM, TO);
+
+    expect(s.satirlar[0].reklam).toBe(false);
+  });
+
+  it("satirlardan BIRI bile reklamsa gonderi reklam sayilir", async () => {
+    mockPrisma.dmLog.groupBy.mockImplementation(async (args: GroupArgs) =>
+      args.where.createdAt ? [grup("M", 5, "asil")] : [grup("M", 5)]
+    );
+    mockGetMedia.mockResolvedValue({ permalink: "p" });
+
+    const s = await gonderiPerformansi("ws", FROM, TO);
+
+    expect(s.satirlar[0].reklam).toBe(true);
   });
 });
 

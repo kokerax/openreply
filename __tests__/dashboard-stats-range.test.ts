@@ -14,8 +14,9 @@ const { mockPrisma, mockWorkspaceId, mockUserId } = vi.hoisted(() => ({
     automation: { count: vi.fn() },
     dmLog: { count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
     linkClick: { count: vi.fn(), groupBy: vi.fn() },
-    // Webhook rozeti artik davranistan turuyor; rota son olayi da cekiyor.
+    // Webhook rozeti artik davranistan ve HESAP BASINA turuyor.
     webhookEvent: { findFirst: vi.fn() },
+    $queryRaw: vi.fn(),
     user: { findUnique: vi.fn() },
   },
   mockWorkspaceId: vi.fn(),
@@ -59,6 +60,7 @@ function primeHappyPath(girdiler: SentRow[] = []) {
   mockPrisma.linkClick.count.mockResolvedValue(2);
   mockPrisma.linkClick.groupBy.mockResolvedValue([]);
   mockPrisma.webhookEvent.findFirst.mockResolvedValue(null);
+  mockPrisma.$queryRaw.mockResolvedValue([]);
   mockPrisma.user.findUnique.mockResolvedValue({ name: "Ali Koker", email: "a@b.c" });
   // findMany is used three times: recentLogs, contacts (distinct), sent series.
   mockPrisma.dmLog.findMany.mockImplementation(async (args: { select?: { createdAt?: boolean } }) => {
@@ -300,6 +302,55 @@ describe("GET /api/dashboard/stats", () => {
  * Sonuc yalnizca kozmetik degildi: CTR paydasi 666'ya sisiyor ve donusum
  * %27,5 gorunuyordu; gercegi 154/419 = %36,8.
  */
+describe("webhook rozeti HESAP BASINA", () => {
+  it("sessiz hesap, mesgul hesabin tazeligini MIRAS ALMAZ", async () => {
+    // Tek bir workspace sorgusu kullanildiginda iki hesap ayni rozeti
+    // aliyordu; yuk zaten hedef hesabin kimligini tasiyor.
+    const simdi = new Date();
+    primeHappyPath([]);
+    mockPrisma.instagramAccount.findMany.mockResolvedValue([
+      { id: "a1", username: "mesgul", instagramId: "IG_MESGUL", name: null,
+        tokenExpiresAt: null, webhookSubscribed: false },
+      { id: "a2", username: "sessiz", instagramId: "IG_SESSIZ", name: null,
+        tokenExpiresAt: null, webhookSubscribed: false },
+    ]);
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { ig: "IG_MESGUL", son: new Date(simdi.getTime() - 3600_000) },
+    ]);
+
+    const body = await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json();
+    const durum = Object.fromEntries(
+      body.data.instagramAccounts.map((h: { username: string; webhookDurumu: string }) => [
+        h.username,
+        h.webhookDurumu,
+      ])
+    );
+
+    expect(durum.mesgul).toBe("bayrak-bayat");
+    expect(durum.sessiz).toBe("bekliyor");
+  });
+
+  it("KARSI YON: her iki hesap da olay aliyorsa ikisi de taze", async () => {
+    const simdi = new Date();
+    primeHappyPath([]);
+    mockPrisma.instagramAccount.findMany.mockResolvedValue([
+      { id: "a1", username: "bir", instagramId: "IG_1", name: null,
+        tokenExpiresAt: null, webhookSubscribed: true },
+      { id: "a2", username: "iki", instagramId: "IG_2", name: null,
+        tokenExpiresAt: null, webhookSubscribed: true },
+    ]);
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { ig: "IG_1", son: new Date(simdi.getTime() - 60_000) },
+      { ig: "IG_2", son: new Date(simdi.getTime() - 60_000) },
+    ]);
+
+    const body = await (await GET(req("?from=2026-08-01&to=2026-08-05"))).json();
+    for (const h of body.data.instagramAccounts) {
+      expect(h.webhookDurumu, h.username).toBe("calisiyor");
+    }
+  });
+});
+
 describe("tek evren: KPI, grafik ve dagilim ayni sayiyi anlatir", () => {
   /** status=SENT olan her dmLog.count cagrisinin where'i. */
   function sentSayimlari() {
