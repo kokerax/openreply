@@ -46,6 +46,22 @@ async function metin(url: string): Promise<{ ok: boolean; govde: string; durum: 
   }
 }
 
+/**
+ * og:image ETIKETI var demek YETMEZ: adres 404/500 dondurse de etiket
+ * yerinde durur ve paylasim yine gorselsiz cikar. Bu yuzden adres cekilip
+ * gercekten bir gorsel geldigi dogrulaniyor.
+ */
+async function gorsel(
+  url: string
+): Promise<{ ok: boolean; durum: number; tur: string }> {
+  try {
+    const r = await fetch(url, { cache: "no-store" });
+    return { ok: r.ok, durum: r.status, tur: r.headers.get("content-type") ?? "" };
+  } catch {
+    return { ok: false, durum: 0, tur: "" };
+  }
+}
+
 export async function seoSagligiOl(): Promise<SeoSaglik> {
   const taban = getBaseUrl().replace(/\/$/, "");
   const kontroller: SeoKontrol[] = [];
@@ -112,7 +128,7 @@ export async function seoSagligiOl(): Promise<SeoSaglik> {
   if (!ornek.ok) {
     // Sayfa cekilemediyse ondan turetilen her sey BELIRSIZ — "kaldi" demek
     // yanlis alarm, "gecti" demek sahte guven olurdu.
-    for (const ad of ["og:url mutlak", "canonical", "FAQ isaretlemesi"]) {
+    for (const ad of ["og:url mutlak", "canonical", "FAQ isaretlemesi", "og:image"]) {
       kontroller.push({ ad, durum: "belirsiz", detay: `ornek sayfa HTTP ${ornek.durum}` });
     }
   } else {
@@ -129,6 +145,32 @@ export async function seoSagligiOl(): Promise<SeoSaglik> {
       durum: canonical && /^https?:\/\//.test(canonical) ? "gecti" : "kaldi",
       detay: canonical ?? "canonical yok",
     });
+
+    // Paylasim karti. 2026-09-09 olcumunde sekiz pazarlama sayfasinin
+    // HICBIRINDE og:image yoktu; link paylasildiginda gorselsiz cikiyordu.
+    const ogGorsel = ornek.govde.match(/property="og:image" content="([^"]*)"/)?.[1];
+    if (!ogGorsel) {
+      kontroller.push({ ad: "og:image", durum: "kaldi", detay: "og:image etiketi YOK" });
+    } else {
+      const adres = ogGorsel.startsWith("http") ? ogGorsel : `${taban}${ogGorsel}`;
+      const g = await gorsel(adres);
+      kontroller.push({
+        ad: "og:image",
+        // Tasima hatasi "kaldi" DEGIL: gecici bir kesintide yanlis alarm olur.
+        durum: g.durum === 0
+          ? "belirsiz"
+          : g.ok && g.tur.startsWith("image/")
+            ? "gecti"
+            : "kaldi",
+        detay: g.durum === 0
+          ? "gorsel istegi tamamlanmadi"
+          : g.ok
+            ? g.tur.startsWith("image/")
+              ? g.tur
+              : `gorsel degil: ${g.tur || "tur yok"}`
+            : `HTTP ${g.durum}`,
+      });
+    }
 
     const soru = (ornek.govde.match(/"@type":"Question"/g) ?? []).length;
     kontroller.push({

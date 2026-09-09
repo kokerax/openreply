@@ -20,6 +20,7 @@ const SAGLAM_ROBOTS = `User-Agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${TABA
 const KARDES_LINKLER = `<a href="/comment-link-automation">a</a><a href="/instagram-dm-automation-agencies">b</a><a href="/instagram-comment-to-dm-templates">c</a><a href="/templates">d</a>`;
 const SAGLAM_SAYFA = `<html><head>
   <meta property="og:url" content="${TABAN}/manychat-alternative">
+  <meta property="og:image" content="${TABAN}/manychat-alternative/opengraph-image">
   <link rel="canonical" href="${TABAN}/manychat-alternative">
   <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[{"@type":"Question"},{"@type":"Question"}]}</script>
 </head><body>${KARDES_LINKLER}</body></html>`;
@@ -27,14 +28,32 @@ const SAGLAM_ANASAYFA = `<a href="/manychat-alternative">a</a><a href="/comment-
   <a href="/instagram-dm-automation-agencies">c</a><a href="/templates">d</a>`;
 
 /** Verilen govdeleri donduren sahte fetch; eksik olan 404 sayilir. */
-function fetchKur(govdeler: Partial<Record<string, string>>) {
+/**
+ * Verilen govdeleri donduren sahte fetch; eksik olan 404 sayilir.
+ * `_gorselTuru` og:image adresi icin donen content-type'i belirler; null
+ * verilirse o adres 404 dondurur.
+ */
+function fetchKur(
+  govdeler: Partial<Record<string, string>>,
+  gorselTuru: string | null = "image/png"
+) {
   vi.stubGlobal("fetch", async (url: string) => {
     const yol = new URL(String(url)).pathname;
+    if (yol.endsWith("/opengraph-image")) {
+      if (gorselTuru === null) return { ok: false, status: 404, headers: BOS_BASLIK };
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (k: string) => (k === "content-type" ? gorselTuru : null) },
+      };
+    }
     const govde = govdeler[yol];
     if (govde === undefined) return { ok: false, status: 404, text: async () => "" };
     return { ok: true, status: 200, text: async () => govde };
   });
 }
+
+const BOS_BASLIK = { get: () => null };
 
 const SAGLAM = {
   "/sitemap.xml": SAGLAM_SITEMAP,
@@ -151,6 +170,51 @@ describe("bozukta KIRMIZI — her kusur ayri ayri", () => {
   });
 });
 
+describe("paylasim karti (og:image)", () => {
+  it("etiket VE adres saglamsa gecer", async () => {
+    fetchKur(SAGLAM);
+    expect(durum(await seoSagligiOl(), "og:image")).toBe("gecti");
+  });
+
+  it("og:image etiketi YOKSA yakalar", async () => {
+    fetchKur({
+      ...SAGLAM,
+      "/manychat-alternative": SAGLAM_SAYFA.replace(
+        /<meta property="og:image"[^>]*>/,
+        ""
+      ),
+    });
+    const s = await seoSagligiOl();
+    expect(durum(s, "og:image")).toBe("kaldi");
+    expect(s.kontroller.find((k) => k.ad === "og:image")?.detay).toContain("YOK");
+  });
+
+  it("etiket VAR ama adres 404 ise yine yakalar", async () => {
+    // Kabi degil cikti: etiketin varligi gorselin geldigini kanitlamaz.
+    fetchKur(SAGLAM, null);
+    expect(durum(await seoSagligiOl(), "og:image")).toBe("kaldi");
+  });
+
+  it("adres 200 donuyor ama GORSEL DEGILSE yakalar", async () => {
+    // Uretim rotasi patlayip HTML hata sayfasi dondurebilir.
+    fetchKur(SAGLAM, "text/html");
+    const s = await seoSagligiOl();
+    expect(durum(s, "og:image")).toBe("kaldi");
+    expect(s.kontroller.find((k) => k.ad === "og:image")?.detay).toContain("gorsel degil");
+  });
+
+  it("gorsel istegi TASIMA hatasi verirse 'belirsiz'", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const yol = new URL(String(url)).pathname;
+      if (yol.endsWith("/opengraph-image")) throw new Error("ECONNRESET");
+      const govde = (SAGLAM as Record<string, string>)[yol];
+      if (govde === undefined) return { ok: false, status: 404, text: async () => "" };
+      return { ok: true, status: 200, text: async () => govde };
+    });
+    expect(durum(await seoSagligiOl(), "og:image")).toBe("belirsiz");
+  });
+});
+
 describe("ucuncu durum: BELIRSIZ", () => {
   it("ornek sayfa cekilemezse 'kaldi' DEMEZ, 'belirsiz' der", async () => {
     // Gecici bir 503'e bakip "SEO bozuk" demek yanlis alarm; "gecti" demek
@@ -159,10 +223,16 @@ describe("ucuncu durum: BELIRSIZ", () => {
 
     const s = await seoSagligiOl();
 
-    for (const ad of ["og:url mutlak", "canonical", "FAQ isaretlemesi", "sayfalar arasi link"]) {
+    for (const ad of [
+      "og:url mutlak",
+      "canonical",
+      "FAQ isaretlemesi",
+      "sayfalar arasi link",
+      "og:image",
+    ]) {
       expect(durum(s, ad)).toBe("belirsiz");
     }
-    expect(s.belirsiz).toBe(4);
+    expect(s.belirsiz).toBe(5);
     // Cekilebilen sayfalar hala dogru degerlendirilir.
     expect(durum(s, "sitemap.xml")).toBe("gecti");
   });
