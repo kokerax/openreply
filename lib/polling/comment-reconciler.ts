@@ -45,6 +45,11 @@ const MAX_NEW_PER_SWEEP = Number(process.env.COMMENT_POLL_MAX_PER_SWEEP ?? 30);
 // For "any post" campaigns, how many recent posts to scan.
 const RECENT_MEDIA_LIMIT = 10;
 
+/** Reklam kopyasi arama penceresi. Reklamlar guncel; 90 gun gereksiz genis. */
+const REKLAM_PENCERESI_MS = 30 * 24 * 60 * 60 * 1000;
+/** Her medya ayri bir yorum API cagrisi demek; tavan turu sinirli tutar. */
+const REKLAM_MEDYA_TAVANI = 15;
+
 interface SweepStat {
   campaign: string;
   keywords: string;
@@ -163,6 +168,12 @@ async function sweepCampaign(
     } catch (error) {
       stat.errors.push(`Media list: ${errMessage(error)}`);
     }
+    // `/me/media` REKLAM KOPYALARINI DONDURMEZ. Bu dal yalnizca organik
+    // besleme bakiyordu, yani "her gonderi" kampanyalarinda Meta'nin
+    // ulastiramadigi bir reklam yorumu KALICI OLARAK kayboluyordu — guvenlik
+    // aginin var olma sebebi olan senaryo, ve hacmin en yuksek oldugu yer.
+    // Olcum: son 90 gunde 898 yorum webhook'unun 103'u (%11,5) reklam kopyasi.
+    mediaIds.push(...(await tumReklamMedyalari(account.instagramId)));
   }
   if (mediaIds.length === 0) return stat;
 
@@ -270,6 +281,40 @@ async function sweepCampaign(
  * a single comment on it has arrived. That is enough for the failure being
  * covered here, where some webhooks arrive and others do not.
  */
+/**
+ * Bu hesapta gorulen TUM reklam kopyasi medya kimlikleri.
+ *
+ * `adMediaFor` bir gonderiye bagli kampanyalar icindir (o gonderinin
+ * kopyalari). "Her gonderi" kampanyalarinda bagli bir gonderi yoktur, o yuzden
+ * pencere icinde gorulmus her reklam kopyasi taranmalidir.
+ *
+ * `adMediaFor`'dan farkli olarak hesaba gore DARALTILIYOR: cok hesapli bir
+ * calisma alaninda baska hesabin reklamini taramak bosa API cagrisidir.
+ */
+export async function tumReklamMedyalari(
+  instagramAccountId: string
+): Promise<string[]> {
+  try {
+    const rows = await prisma.$queryRaw<{ mediaId: string | null }[]>`
+      SELECT DISTINCT change->'value'->'media'->>'id' AS "mediaId"
+      FROM "WebhookEvent" w,
+           jsonb_array_elements(w.payload::jsonb->'entry') entry,
+           jsonb_array_elements(entry->'changes') change
+      WHERE change->>'field' = 'comments'
+        AND entry->>'id' = ${instagramAccountId}
+        AND change->'value'->'media'->>'original_media_id' IS NOT NULL
+        AND change->'value'->'media'->>'original_media_id'
+            <> change->'value'->'media'->>'id'
+        AND w."createdAt" > ${new Date(Date.now() - REKLAM_PENCERESI_MS)}
+      LIMIT ${REKLAM_MEDYA_TAVANI}
+    `;
+    return rows.map((r) => r.mediaId).filter((id): id is string => Boolean(id));
+  } catch {
+    // Burada dusmek taramayi durdurmamali: organik gonderiler yine bakilir.
+    return [];
+  }
+}
+
 export async function adMediaFor(postId: string): Promise<string[]> {
   try {
     const rows = await prisma.$queryRaw<{ mediaId: string | null }[]>`

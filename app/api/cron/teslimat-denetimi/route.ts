@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
+import { tumReklamMedyalari } from "@/lib/polling/comment-reconciler";
 import { bloktanKurtar } from "@/lib/ops/kurtarma";
 import { eksikYorumCevaplariniTamamla } from "@/lib/ops/yorum-cevabi-kurtarma";
 
@@ -30,6 +31,7 @@ export const maxDuration = 300;
 
 const V = process.env.META_GRAPH_API_VERSION ?? "v25.0";
 /** Kaç saat geriye bakılacak. Kısa tutuluyor: amaç arızayı ERKEN görmek. */
+const YORUM_SAYFA_TAVANI = 6;
 const PENCERE_SAAT = 6;
 /** Bu kadar kişi kaçmışsa alarm. 1-2 kişi geçici hata olabilir; 5 desendir. */
 const ALARM_ESIGI = 5;
@@ -85,21 +87,46 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: mr.error.message }, { status: 502 });
   }
 
+  // `/me/media` REKLAM KOPYALARINI DONDURMEZ: nobetci, hacmin en yuksek
+  // oldugu yola korudu. Reklam medya kimlikleri webhook gecmisinden geliyor
+  // (ads API izni gerektirmeden), organik listeye ekleniyor.
+  const medyaKimlikleri = [
+    ...((mr.data ?? []) as { id: string }[]).map((m) => m.id),
+    ...(await tumReklamMedyalari(hesap.instagramId)),
+  ];
+
   const eslesen: { id: string; uid: string; ts: string; text: string }[] = [];
-  for (const m of mr.data ?? []) {
-    const b = await (
-      await fetch(
-        `https://graph.instagram.com/${V}/${m.id}/comments?fields=id,text,timestamp,from&limit=50&access_token=${T}`
-      )
-    ).json();
-    if (b.error) continue;
-    for (const c of b.data ?? []) {
-      if (Date.parse(c.timestamp) < esik) continue;
-      if (!c.from?.id || c.from.id === hesap.instagramId) continue;
-      const uyan = akislar.some(
-        (a) => matchKeywords(c.text ?? "", a.keywords, a.wholeWordMatch).matched
-      );
-      if (uyan) eslesen.push({ id: c.id, uid: c.from.id, ts: c.timestamp, text: c.text ?? "" });
+  let tarananYorum = 0;
+  for (const mediaId of medyaKimlikleri) {
+    // Tek sayfa 50 yorumla siniriydi: yogun bir gonderide nobetci sessizce
+    // kesiyor ve "kacan yok" diyordu. Pencereden eski yoruma ulasinca duruyor.
+    let sonraki: string | null =
+      `https://graph.instagram.com/${V}/${mediaId}/comments` +
+      `?fields=id,text,timestamp,from&limit=50&access_token=${T}`;
+    let sayfa = 0;
+    while (sonraki && sayfa < YORUM_SAYFA_TAVANI) {
+      const b: {
+        data?: { id: string; text?: string; timestamp: string; from?: { id: string } }[];
+        paging?: { next?: string };
+        error?: unknown;
+      } = await (await fetch(sonraki)).json();
+      if (b.error) break;
+      sayfa += 1;
+      let pencereninDisina = false;
+      for (const c of b.data ?? []) {
+        tarananYorum += 1;
+        if (Date.parse(c.timestamp) < esik) {
+          // Yorumlar ters kronolojik gelir; buradan sonrasi hep eskidir.
+          pencereninDisina = true;
+          continue;
+        }
+        if (!c.from?.id || c.from.id === hesap.instagramId) continue;
+        const uyan = akislar.some(
+          (a) => matchKeywords(c.text ?? "", a.keywords, a.wholeWordMatch).matched
+        );
+        if (uyan) eslesen.push({ id: c.id, uid: c.from.id, ts: c.timestamp, text: c.text ?? "" });
+      }
+      sonraki = pencereninDisina ? null : (b.paging?.next ?? null);
     }
   }
 
@@ -231,6 +258,14 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     pencereSaat: PENCERE_SAAT,
+    // Bir koruma aracinin "sessizce hicbir sey bulamamasi" ile "temiz"
+    // demesi ayni ciktiya benzememeli: kac birim islendigi hep raporlanir.
+    taranan: {
+      medya: medyaKimlikleri.length,
+      organik: (mr.data ?? []).length,
+      reklam: medyaKimlikleri.length - (mr.data ?? []).length,
+      yorum: tarananYorum,
+    },
     kurtarma,
     yorumCevabi,
     eslesenYorum: eslesen.length,
