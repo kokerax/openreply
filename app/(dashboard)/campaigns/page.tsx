@@ -63,6 +63,8 @@ interface Campaign {
     skipped: number;
     failed: number;
     clicks: number;
+    /** Ayni ipHash bir kez. CTR bunun uzerinden hesaplanir. */
+    uniqueClicks?: number;
     ctr: number;
     topKeywords: { keyword: string; count: number }[];
   };
@@ -936,7 +938,15 @@ export default function CampaignsPage() {
                     <span aria-hidden="true">·</span>
                     <span>{auto.analytics.failed} failed</span>
                     <span aria-hidden="true">·</span>
-                    <span>{auto.analytics.clicks} clicks</span>
+                    {/* CTR TEKIL tiklayandan hesaplaniyor; toplam tiklamayi
+                        tek basina yazmak "14 tiklama / 15 gonderim = %93"
+                        gibi yanlis bir zihinsel hesap davet ediyordu. */}
+                    <span>
+                      {auto.analytics.clicks} clicks
+                      {auto.analytics.uniqueClicks !== undefined &&
+                        auto.analytics.uniqueClicks !== auto.analytics.clicks &&
+                        ` (${auto.analytics.uniqueClicks} unique)`}
+                    </span>
                   </div>
 
                   {auto.analytics.topKeywords.length > 0 && (

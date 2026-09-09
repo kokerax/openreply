@@ -6,6 +6,7 @@ import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
 import { buildTrackedUrl } from "@/lib/tracking/message";
 import { generateTrackedLinkSlug } from "@/lib/tracking/server";
 import { buildReportUrl, generateReportShareSlug } from "@/lib/reports/share";
+import { SADECE_YORUM } from "@/lib/queue/dmlog-kayit-turu";
 import {
   canManageWorkspace,
   getCurrentWorkspaceContext,
@@ -158,7 +159,10 @@ export async function GET(request: NextRequest) {
       },
       _count: {
         // Goc muhurleri (isBackfill) "gonderildi" degildir — dashboard ile ayni filtre.
-        select: { dmLogs: { where: { isBackfill: false } } },
+        // Sentetik defter satirlari (reveal:/emailgate:) da kampanya
+        // CALISMASI degil, takip mesaji: GTA'da 305 "runs" gorunuyordu,
+        // gercegi 122.
+        select: { dmLogs: { where: { isBackfill: false, ...SADECE_YORUM } } },
       },
       trackedLinks: {
         select: {
@@ -194,11 +198,14 @@ export async function GET(request: NextRequest) {
   const [statusCounts, clickCounts, keywordCounts] = await Promise.all([
     prisma.dmLog.groupBy({
       by: ["automationId", "status"],
-      where: { workspaceId, isBackfill: false },
+      // Ayni evren: sent/failed/skipped de yalnizca gercek yorumlardan.
+      where: { workspaceId, isBackfill: false, ...SADECE_YORUM },
       _count: { _all: true },
     }),
+    // `ipHash` ile kiriliyor: CTR paydasi kisi sayisi oldugu icin payi da
+    // oyle olmali. Ayni kisinin iki tiklamasi iki donusum DEGILDIR.
     prisma.linkClick.groupBy({
-      by: ["automationId"],
+      by: ["automationId", "ipHash"],
       where: { workspaceId },
       _count: { _all: true },
     }),
@@ -216,6 +223,7 @@ export async function GET(request: NextRequest) {
       skipped: number;
       failed: number;
       clicks: number;
+      uniqueClicks: number;
       topKeywords: { keyword: string; count: number }[];
     }
   >();
@@ -226,6 +234,7 @@ export async function GET(request: NextRequest) {
       skipped: 0,
       failed: 0,
       clicks: 0,
+      uniqueClicks: 0,
       topKeywords: [],
     });
   }
@@ -241,7 +250,11 @@ export async function GET(request: NextRequest) {
 
   for (const row of clickCounts) {
     const item = analytics.get(row.automationId);
-    if (item) item.clicks = row._count._all;
+    if (!item) continue;
+    item.clicks += row._count._all;
+    // `ipHash` yazilmadan onceki satirlar tekillestirilemez; hepsini "bir
+    // kisi" saymak donusumu OLDUGUNDAN DUSUK gosterirdi.
+    item.uniqueClicks += row.ipHash === null ? row._count._all : 1;
   }
 
   for (const automation of automationsWithReports) {
@@ -267,6 +280,7 @@ export async function GET(request: NextRequest) {
         skipped: 0,
         failed: 0,
         clicks: 0,
+        uniqueClicks: 0,
         topKeywords: [],
       };
 
@@ -281,7 +295,8 @@ export async function GET(request: NextRequest) {
           : null,
         analytics: {
           ...item,
-          ctr: calculateCtr(item.clicks, item.sent),
+          // Pay TEKIL tiklayan, payda yoruma gonderilen DM: ayni evren.
+          ctr: calculateCtr(item.uniqueClicks, item.sent),
         },
       };
     }),
