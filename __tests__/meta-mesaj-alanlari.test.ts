@@ -39,13 +39,25 @@ afterEach(() => {
 /** Onizlemenin okudugu her alan burada istenmeli. */
 const ZORUNLU = ["message", "attachments", "shares", "story"];
 
+/**
+ * Alan adini TAM token olarak arar.
+ *
+ * `toContain("message")` KORDU: alan listesi `messages.limit(1){...}` ile
+ * basliyor ve "messages" zaten "message" iceriyor — `message` alanini
+ * silsen bile assert yesil kaliyordu. Token siniri `{`, `,` ya da dize
+ * basi/sonu olmali.
+ */
+function alanDeseni(alan: string): RegExp {
+  return new RegExp(`(^|[{,])${alan}([,}]|$)`);
+}
+
 describe("konusma listesi", () => {
   it("onizlemenin okudugu TUM alanlari ister", async () => {
     const u = await istenenUrl(() => getConversations("tok", "ig_1"));
     const fields = u.searchParams.get("fields") ?? "";
 
     for (const alan of ZORUNLU) {
-      expect(fields, `"${alan}" alani istenmiyor`).toContain(alan);
+      expect(fields, `"${alan}" alani istenmiyor`).toMatch(alanDeseni(alan));
     }
   });
 
@@ -62,7 +74,7 @@ describe("sohbet govdesi", () => {
     const fields = u.searchParams.get("fields") ?? "";
 
     for (const alan of ZORUNLU) {
-      expect(fields, `"${alan}" alani istenmiyor`).toContain(alan);
+      expect(fields, `"${alan}" alani istenmiyor`).toMatch(alanDeseni(alan));
     }
   });
 });

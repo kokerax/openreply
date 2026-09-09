@@ -26,6 +26,20 @@ describe("bilinen etiketler cevrilir", () => {
   });
 });
 
+describe("PROTOTIP ZINCIRI: kullanici metni nesne dondurmemeli", () => {
+  it("__proto__ ve arkadaslari DIZE doner, nesne/fonksiyon DEGIL", () => {
+    // Duz nesne literalinde `ESLEME["__proto__"]` Object.prototype dondurur
+    // ve `??` hic devreye girmez. `commentText` kullanicinin yazdigi yorum
+    // metni: biri "__proto__" yazinca Logs sayfasi React'te
+    // "Objects are not valid as a React child" ile bosalirdi.
+    for (const g of ["__proto__", "constructor", "toString", "valueOf", "hasOwnProperty"]) {
+      const r = defterEtiketi(g);
+      expect(typeof r, `${g} -> ${typeof r}`).toBe("string");
+      expect(r).toBe(g);
+    }
+  });
+});
+
 describe("KARSI YON: gercek yorum metnine dokunulmaz", () => {
   it("kisinin yazdigi metin oldugu gibi doner", () => {
     // `dm:` satirlari gercek DM metnini tasiyor; cevirmek veriyi bozardi.

@@ -22,14 +22,23 @@
  * metnini tasiyor ("Chatgpt", "GTA"), etiket degil.
  */
 
-/** Bilinen defter etiketleri -> panelde gosterilecek karsiligi. */
-const ESLEME: Record<string, string> = {
+/**
+ * Bilinen defter etiketleri -> panelde gosterilecek karsiligi.
+ *
+ * `Object.create(null)` ile PROTOTIPSIZ: duz bir nesne literalinde
+ * `ESLEME["__proto__"]` prototip zincirine duser ve `Object.prototype`
+ * dondurur — `??` hic devreye girmez. `commentText` kullanicinin yazdigi
+ * yorum metni oldugu icin biri "__proto__" yazinca Logs sayfasi React'te
+ * "Objects are not valid as a React child" ile bosalirdi; "constructor",
+ * "toString", "valueOf" ise CSV'ye fonksiyon govdesi yazardi.
+ */
+const ESLEME: Record<string, string> = Object.assign(Object.create(null), {
   "(e-posta bekleniyor)": "(waiting for email)",
   "(e-posta alindi)": "(email received)",
   "(e-posta alındı)": "(email received)",
   "(takip istemi)": "(follow prompt)",
   "(button tap)": "(button tap)",
-};
+});
 
 /**
  * Taninan bir defter etiketini Ingilizce karsiligina cevirir; taninmayan

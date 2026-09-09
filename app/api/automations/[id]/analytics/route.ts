@@ -54,7 +54,10 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
       select: { createdAt: true, referrer: true, userAgent: true, ipHash: true },
     }),
     prisma.dmLog.findMany({
-      where: { ...dmScope, status: "FAILED" },
+      // Huninin geri kalani gibi YALNIZCA yorumlar: kampanya listesi
+      // (filtreli) "0 failed" derken bu ekran sentetik satirlarin hatalarini
+      // sayarsa ayni kampanya iki ekranda farkli gorunur.
+      where: { ...yorumKapsami, status: "FAILED" },
       select: { errorMessage: true },
     }),
   ]);
