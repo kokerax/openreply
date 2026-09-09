@@ -80,11 +80,30 @@ function isDeliveredDespiteError(error: unknown): boolean {
 async function hizSlotuAl(
   instagramAccountId: string,
   job: Job<DmQueueJob>,
-  isAdi: string
+  isAdi: string,
+  /**
+   * Cagiran bu adimdan ONCE calisma alani kotasini rezerve ettiyse burayi
+   * doldurur; slot bulunamayinca rezervasyon BURADA geri veriliyor.
+   *
+   * Neden cagiranin isi degil: uc yol (postback, e-posta, DM tetikleyici)
+   * rezerve edip slot yokken serbest birakmadan donuyordu ve is yeniden
+   * kuyruklandiginda TEKRAR rezerve ediliyordu. Canli sayac 595 iken
+   * gercek gonderim 589'du. Birakmayi karar noktasinin yanina koymak yeni
+   * bir cagiranin ayni seyi unutmasini engelliyor.
+   */
+  rezervasyon?: { workspaceId: string; periodStart: Date | null }
 ): Promise<boolean> {
   const deneme = job.attemptsMade ?? 0;
   const slot = await reserveDMSlot(instagramAccountId, deneme);
   if (slot.allowed) return true;
+
+  // Gonderim YAPILMAYACAK: rezerve edilen kota geri verilmeli.
+  if (rezervasyon) {
+    await releaseWorkspaceDMReservation(
+      rezervasyon.workspaceId,
+      rezervasyon.periodStart
+    );
+  }
 
   if (slot.shouldRequeue) {
     await getDMQueue().add(job.name as string, job.data, {
@@ -976,7 +995,14 @@ async function epostaSonrasiLinkiGonder(
   const dedupeId = sentetikAnahtar("reveal", igsid);
   const usage = await reserveWorkspaceDMSend(automation.workspaceId);
   if (!usage.allowed) return;
-  if (!(await hizSlotuAl(automation.instagramAccount.instagramId, job, "eposta"))) return;
+  if (
+    !(await hizSlotuAl(automation.instagramAccount.instagramId, job, "eposta", {
+      workspaceId: automation.workspaceId,
+      periodStart: usage.periodStart,
+    }))
+  ) {
+    return;
+  }
 
   try {
     await sendRevealDirectMessage(
@@ -1287,7 +1313,14 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   }
 
   // Linki tasiyan asil DM bu yoldan gider; sinir burada da uygulanmali.
-  if (!(await hizSlotuAl(instagramAccountId, job as Job<DmQueueJob>, "postback"))) return;
+  if (
+    !(await hizSlotuAl(instagramAccountId, job as Job<DmQueueJob>, "postback", {
+      workspaceId: automation.workspaceId,
+      periodStart: usage.periodStart,
+    }))
+  ) {
+    return;
+  }
 
   try {
     await sendRevealDirectMessage(
@@ -1603,7 +1636,8 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       !(await hizSlotuAl(
         automation.instagramAccount.instagramId,
         job as Job<DmQueueJob>,
-        "message"
+        "message",
+        { workspaceId: automation.workspaceId, periodStart: usage.periodStart }
       ))
     )
       continue;
