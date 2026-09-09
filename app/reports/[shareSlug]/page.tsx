@@ -136,15 +136,22 @@ export default async function ReportPage({ params }: ReportPageProps) {
             value={report.metrics.failed}
             helper="Replies that need operational review."
           />
+          {/* CTR TEKIL tiklayandan hesaplaniyor. Toplam tiklamayi tek basina
+              yazmak musteriyi 99/289 = %34 gibi yanlis bir hesaba davet
+              ediyordu; iki sayi da yazili olunca aritmetik gorunur. */}
           <MetricCard
             label="Clicks"
             value={report.metrics.clicks}
-            helper="Tracked link visits from replies."
+            helper={
+              report.metrics.uniqueClicks === report.metrics.clicks
+                ? "Tracked link visits from replies."
+                : `${report.metrics.uniqueClicks} unique visitors.`
+            }
           />
           <MetricCard
             label="CTR"
             value={`${report.metrics.ctr}%`}
-            helper="Clicks divided by sent replies."
+            helper="Unique visitors divided by sent replies."
           />
         </div>
 
