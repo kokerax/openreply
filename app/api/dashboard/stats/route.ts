@@ -209,7 +209,8 @@ export async function GET(request: NextRequest) {
           ...inRange,
           ...accountFilter,
         },
-        select: { createdAt: true },
+        // Reklam/organik kirilimi: originalMediaId dolu = reklam kopyasi.
+        select: { createdAt: true, mediaId: true, originalMediaId: true },
       }),
     ]);
 
@@ -246,6 +247,16 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, count]) => ({ date, count }));
 
+    // Reklamdan mi organikten mi geldi. Uc kova: alan yazilmadan onceki
+    // kayitlar "bilinmiyor"da kalir — onlari organige saymak gecmisi
+    // oldugundan daha organik gosterirdi. Kampanya sayfasindaki ayni kural.
+    const sourceSplit = { ad: 0, organic: 0, unknown: 0 };
+    for (const row of sentRows) {
+      if (row.originalMediaId) sourceSplit.ad += 1;
+      else if (row.mediaId) sourceSplit.organic += 1;
+      else sourceSplit.unknown += 1;
+    }
+
     const statusSummary = summarizeDmStatuses(
       dmStatusCountsInRange.map((row) => ({
         status: row.status,
@@ -276,6 +287,7 @@ export async function GET(request: NextRequest) {
         range: { from: range.fromKey, to: range.toKey, days: range.days },
         // Panel "Today"in HANGI takvime gore oldugunu yazabilsin diye.
         timeZone,
+        sourceSplit,
         totalAutomations,
         activeAutomations,
         dmsSentToday,

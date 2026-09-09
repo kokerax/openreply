@@ -40,6 +40,7 @@ interface DashboardStats {
   range: { from: string; to: string; days: number };
   topKeywords: { keyword: string; count: number }[];
   dailyDMs: { date: string; count: number }[];
+  sourceSplit?: { ad: number; organic: number; unknown: number };
   recentLogs: Array<{
     id: string;
     commenterName: string | null;
@@ -240,6 +241,63 @@ export default function DashboardPage() {
           <StatCard label="Contacts" value={nf.format(stats?.contactsCount ?? 0)} />
         </div>
       </section>
+
+      {/* Reklam / organik kirilimi.
+          Kampanya sayfasinda vardi ama ILK ACILAN ekranda yoktu; reklamin
+          katkisini gormek icin kampanya kampanya dolasmak gerekiyordu.
+          "Bilinmiyor" kovasi BILEREK gorunur: alan yazilmadan onceki
+          kayitlari organige saymak gecmisi oldugundan daha organik
+          gosterirdi. Yuzdeler yalnizca BILINENLER uzerinden. */}
+      {(() => {
+        const b = stats?.sourceSplit;
+        if (!b) return null;
+        const toplam = b.ad + b.organic + b.unknown;
+        if (toplam === 0) return null;
+        const bilinen = b.ad + b.organic;
+        const kovalar = [
+          { etiket: "Ad", deger: b.ad, sinif: "bg-accent" },
+          { etiket: "Organic", deger: b.organic, sinif: "bg-success" },
+          { etiket: "Not tracked", deger: b.unknown, sinif: "bg-border" },
+        ];
+        return (
+          <section className="panel p-4 sm:p-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="section-title">Where the comments came from</h2>
+              <span className="text-xs text-muted">{rangeLabel(stats?.range)}</span>
+            </div>
+            <div className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full bg-surface">
+              {kovalar
+                .filter((k) => k.deger > 0)
+                .map((k) => (
+                  <div
+                    key={k.etiket}
+                    className={k.sinif}
+                    style={{ width: `${(k.deger / toplam) * 100}%` }}
+                    title={`${k.etiket}: ${k.deger}`}
+                  />
+                ))}
+            </div>
+            <dl className="mt-4 grid grid-cols-3 gap-4">
+              {kovalar.map((k) => (
+                <div key={k.etiket}>
+                  <dt className="flex items-center gap-2 text-xs text-muted">
+                    <span className={`h-2 w-2 rounded-full ${k.sinif}`} />
+                    {k.etiket}
+                  </dt>
+                  <dd className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                    {nf.format(k.deger)}
+                    {k.etiket !== "Not tracked" && bilinen > 0 && (
+                      <span className="ml-1.5 text-xs font-normal text-muted">
+                        {Math.round((k.deger / bilinen) * 100)}% of tracked
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        );
+      })()}
 
       {/* Chart + Rate limit */}
       <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-6">

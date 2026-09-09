@@ -140,6 +140,34 @@ describe("GET /api/dashboard/stats", () => {
     vi.useRealTimers();
   });
 
+  it("reklam/organik kirilimini uc kovada verir", async () => {
+    primeHappyPath([
+      { createdAt: new Date("2026-08-02T05:00:00.000Z"), mediaId: "reklam_1", originalMediaId: "asil" },
+      { createdAt: new Date("2026-08-02T06:00:00.000Z"), mediaId: "reklam_1", originalMediaId: "asil" },
+      { createdAt: new Date("2026-08-03T05:00:00.000Z"), mediaId: "asil", originalMediaId: null },
+      // Alan yazilmadan onceki kayit: ORGANIGE sayilmamali.
+      { createdAt: new Date("2026-08-04T05:00:00.000Z"), mediaId: null, originalMediaId: null },
+    ]);
+
+    const res = await GET(req("?from=2026-08-01&to=2026-08-05"));
+    const d = (await res.json()).data;
+
+    expect(d.sourceSplit).toEqual({ ad: 2, organic: 1, unknown: 1 });
+    // Kirilim toplami gonderim sayisiyla TUTMALI.
+    const t = d.sourceSplit.ad + d.sourceSplit.organic + d.sourceSplit.unknown;
+    expect(t).toBe(d.dailyDMs.reduce((a: number, x: { count: number }) => a + x.count, 0));
+  });
+
+  it("KARSI YON: hepsi organikse reklam sifir", async () => {
+    primeHappyPath([
+      { createdAt: new Date("2026-08-02T05:00:00.000Z"), mediaId: "asil", originalMediaId: null },
+    ]);
+
+    const res = await GET(req("?from=2026-08-01&to=2026-08-05"));
+
+    expect((await res.json()).data.sourceSplit).toEqual({ ad: 0, organic: 1, unknown: 0 });
+  });
+
   it("KARSI YON: tz YOKSA eski UTC davranisi aynen surer", async () => {
     primeHappyPath([
       { createdAt: new Date("2026-08-02T21:30:00.000Z") },
