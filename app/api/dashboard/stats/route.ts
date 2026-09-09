@@ -3,6 +3,11 @@ import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { dayKeys, resolveDateRange } from "@/lib/utils/date-range";
 import {
+  bolgedeGunBasi,
+  resolveTimeZone,
+  yerelGunAnahtari,
+} from "@/lib/reports/trend-helpers";
+import {
   calculateCtr,
   normalizeTopKeywords,
   summarizeDmStatuses,
@@ -29,9 +34,16 @@ export async function GET(request: NextRequest) {
   const userId = await getCurrentUserId();
 
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - 7);
+  // "Bugun" SUNUCUNUN yerel saatinden hesaplaniyordu. Vercel UTC'de kostugu
+  // icin Istanbul'daki kullaniciya bugun saat 03:00'te basliyor, gece yarisi
+  // ile 03:00 arasindaki gonderimler "bugun" sayilmiyordu. Panel tarayicinin
+  // bolgesini `tz` ile gonderiyor (trend sayfasindaki desenin aynisi).
+  // Varsayilan UTC: ciplak API cagrilarinin sozlesmesi degismesin. Panel
+  // tarayicinin bolgesini HER ISTEKTE `tz` ile gonderiyor.
+  const tzParam = request.nextUrl.searchParams.get("tz");
+  const timeZone = (tzParam ? resolveTimeZone(tzParam) : "UTC") ?? "UTC";
+  const todayStart = bolgedeGunBasi(timeZone, now);
+  const weekStart = new Date(todayStart.getTime() - 7 * 24 * 3600_000);
   const range = resolveDateRange(request.nextUrl.searchParams, 30);
   const inRange = { createdAt: { gte: range.from, lt: range.toExclusive } };
 
@@ -201,14 +213,33 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    // Zero-filled daily series over the whole range, keyed by UTC day
-    // (the same calendar resolveDateRange uses for the bounds).
-    const perDay = new Map<string, number>(dayKeys(range).map((k) => [k, 0]));
+    // Sifir dolgulu gunluk seri, KULLANICININ bolgesindeki takvim gunune gore.
+    // Iskelet hala UTC gunlerinden uretiliyor (aralik sinirlari oyle); +03 gibi
+    // bolgelerde araligin son UTC gununun son saatleri BIR SONRAKI yerel gune
+    // duser. `has` kontroluyle atlamak o satirlari SESSIZCE dusururdu — bunun
+    // yerine eksik anahtar ekleniyor ve seri tarihe gore siralaniyor.
+    // Iskelet anahtarlar ARALIGIN YEREL takviminden uretiliyor: UTC gunlerinden
+    // uretip `has` ile suzmek, +03 gibi bolgelerde araligin son saatlerini
+    // (bir sonraki yerel gune dusen satirlari) SESSIZCE dusururdu. Aralik disi
+    // satirlar yine elenir — DB filtresi zaten eliyor, burasi ikinci kapi.
+    const ilkGun = yerelGunAnahtari(range.from, timeZone);
+    const sonGun = yerelGunAnahtari(
+      new Date(range.toExclusive.getTime() - 1),
+      timeZone
+    );
+    const perDay = new Map<string, number>();
+    for (const k of dayKeys(range)) perDay.set(k, 0);
+    perDay.set(ilkGun, perDay.get(ilkGun) ?? 0);
+    perDay.set(sonGun, perDay.get(sonGun) ?? 0);
     for (const row of sentRows) {
-      const key = row.createdAt.toISOString().slice(0, 10);
-      if (perDay.has(key)) perDay.set(key, (perDay.get(key) ?? 0) + 1);
+      const key = yerelGunAnahtari(row.createdAt, timeZone);
+      if (key < ilkGun || key > sonGun) continue;
+      perDay.set(key, (perDay.get(key) ?? 0) + 1);
     }
-    const dailyDMs = [...perDay.entries()].map(([date, count]) => ({ date, count }));
+    const dailyDMs = [...perDay.entries()]
+      .filter(([d]) => d >= ilkGun && d <= sonGun)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, count]) => ({ date, count }));
 
     const statusSummary = summarizeDmStatuses(
       dmStatusCountsInRange.map((row) => ({
@@ -238,6 +269,8 @@ export async function GET(request: NextRequest) {
         instagramAccounts,
         selectedInstagramAccountId: selectedAccountId,
         range: { from: range.fromKey, to: range.toKey, days: range.days },
+        // Panel "Today"in HANGI takvime gore oldugunu yazabilsin diye.
+        timeZone,
         totalAutomations,
         activeAutomations,
         dmsSentToday,

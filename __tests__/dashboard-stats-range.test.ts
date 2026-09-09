@@ -87,6 +87,70 @@ describe("GET /api/dashboard/stats", () => {
     expect(body.data.userName).toBe("Ali");
   });
 
+  it("tz verilince gunler KULLANICININ takvimine gore kovalanir", async () => {
+    // Kusur: "bugun" ve gunluk seri sunucunun (Vercel = UTC) takvimine gore
+    // hesaplaniyordu. +03'te 21:30Z ERTESI yerel gundur; UTC kovalamasi onu
+    // bir onceki gune yaziyordu.
+    primeHappyPath([
+      { createdAt: new Date("2026-08-02T21:30:00.000Z") }, // Istanbul: 08-03
+      { createdAt: new Date("2026-08-03T05:00:00.000Z") }, // Istanbul: 08-03
+    ]);
+
+    const res = await GET(req("?from=2026-08-01&to=2026-08-05&tz=Europe/Istanbul"));
+    const body = await res.json();
+
+    expect(body.data.timeZone).toBe("Europe/Istanbul");
+    const gun = (d: string) =>
+      body.data.dailyDMs.find((x: { date: string }) => x.date === d)?.count;
+    expect(gun("2026-08-03")).toBe(2); // ikisi de ayni YEREL gunde
+    expect(gun("2026-08-02")).toBe(0);
+  });
+
+  it("'bugun' sinirini KULLANICININ bolgesinden alir, sunucununkinden degil", async () => {
+    // Mutasyon notu: bu test yazilmadan once `todayStart`i UTC'ye sabitleyen
+    // mutasyon YESIL kaliyordu — yani sinir hic sinanmiyordu.
+    vi.setSystemTime(new Date("2026-09-09T01:00:00.000Z")); // Istanbul 04:00
+    primeHappyPath();
+
+    await GET(req("?from=2026-08-01&to=2026-09-09&tz=Europe/Istanbul"));
+
+    const gunlukSorgu = mockPrisma.dmLog.count.mock.calls
+      .map((c) => c[0]?.where?.createdAt?.gte as Date | undefined)
+      .filter((d): d is Date => d instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    // Istanbul'da 2026-09-09 gece yarisi = 2026-09-08T21:00Z.
+    // UTC hesabi 2026-09-09T00:00Z verirdi ve gece yarisi-03:00 arasindaki
+    // gonderimleri "bugun"den dislardi.
+    expect(gunlukSorgu?.toISOString()).toBe("2026-09-08T21:00:00.000Z");
+    vi.useRealTimers();
+  });
+
+  it("KARSI YON: tz YOKSA eski UTC davranisi aynen surer", async () => {
+    primeHappyPath([
+      { createdAt: new Date("2026-08-02T21:30:00.000Z") },
+      { createdAt: new Date("2026-08-03T05:00:00.000Z") },
+    ]);
+
+    const res = await GET(req("?from=2026-08-01&to=2026-08-05"));
+    const body = await res.json();
+
+    expect(body.data.timeZone).toBe("UTC");
+    const gun = (d: string) =>
+      body.data.dailyDMs.find((x: { date: string }) => x.date === d)?.count;
+    expect(gun("2026-08-02")).toBe(1); // UTC'de ayri gunler
+    expect(gun("2026-08-03")).toBe(1);
+  });
+
+  it("gecersiz tz sessizce UTC'ye duser, cokmez", async () => {
+    primeHappyPath([{ createdAt: new Date("2026-08-02T05:00:00.000Z") }]);
+
+    const res = await GET(req("?from=2026-08-01&to=2026-08-05&tz=Mars/Olympus"));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.timeZone).toBe("UTC");
+  });
+
   it("range-scoped queries use gte from / lt toExclusive, and never drop isBackfill:false", async () => {
     primeHappyPath();
     await GET(req("?from=2026-08-01&to=2026-08-05"));

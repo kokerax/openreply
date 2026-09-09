@@ -26,6 +26,7 @@ interface DashboardStats {
   totalAutomations: number;
   activeAutomations: number;
   dmsSentToday: number;
+  timeZone?: string;
   dmsSentWeek: number;
   dmsSentMonth: number;
   dmsSkippedMonth: number;
@@ -80,6 +81,14 @@ export default function DashboardPage() {
     setError(null);
     try {
       const params = rangeToParams(range);
+      // "Bugun" sunucunun degil KULLANICININ takvimine gore hesaplansin.
+      // Vercel UTC'de kostugu icin +03'teki bir kullaniciya bugun 03:00'te
+      // basliyor, gece yarisi-03:00 arasi gonderimler dusuyordu.
+      try {
+        params.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
+      } catch {
+        // Bolge okunamazsa sunucu varsayilani kullanir.
+      }
       if (selectedAccountId !== "all") {
         params.set("instagramAccountId", selectedAccountId);
       }
@@ -208,7 +217,9 @@ export default function DashboardPage() {
             value={nf.format(stats?.dmsSentMonth ?? 0)}
             hint={`${nf.format(stats?.dmsSentToday ?? 0)} today · ${nf.format(
               stats?.dmsSentWeek ?? 0
-            )} this week`}
+            )} this week${
+              stats?.timeZone ? ` (${stats.timeZone.split("/").pop()?.replace(/_/g, " ")})` : ""
+            }`}
           />
           <StatCard label="Skipped" value={nf.format(stats?.dmsSkippedMonth ?? 0)} />
           <StatCard label="Failed" value={nf.format(stats?.dmsFailedMonth ?? 0)} />

@@ -95,3 +95,66 @@ export function median(values: number[]): number {
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
 }
+
+/**
+ * `date` an'inin `timeZone`'daki UTC ofseti (ms). DST dahil dogru.
+ *
+ * Sabit bir ofset sayisi yeterli DEGIL: yaz saati uygulayan bolgelerde ofset
+ * yil icinde degisir, ve gecis gunlerinde gunun uzunlugu 23/25 saattir.
+ */
+function bolgeOfsetiMs(date: Date, timeZone: string): number {
+  const parcalar = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(date);
+  const al = (t: Intl.DateTimeFormatPartTypes) =>
+    Number(parcalar.find((p) => p.type === t)?.value ?? NaN);
+  const utcmis = Date.UTC(
+    al("year"),
+    al("month") - 1,
+    al("day"),
+    al("hour") % 24,
+    al("minute"),
+    al("second")
+  );
+  return utcmis - date.getTime();
+}
+
+/** `date`in `timeZone`'daki takvim gunu, "YYYY-MM-DD". */
+export function yerelGunAnahtari(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/**
+ * `timeZone`'da BUGUNUN basladigi an (UTC Date olarak).
+ *
+ * `new Date(y, m, d)` SUNUCUNUN yerel saatini kullanir; Vercel UTC'de kostugu
+ * icin Istanbul'daki kullaniciya "bugun" saat 03:00'te basliyor gorunuyordu ve
+ * gece yarisi ile 03:00 arasi gonderimler "bugun" sayilmiyordu.
+ */
+export function bolgedeGunBasi(timeZone: string, simdi: Date = new Date()): Date {
+  const ofset = bolgeOfsetiMs(simdi, timeZone);
+  const yerel = new Date(simdi.getTime() + ofset);
+  const yerelGeceYarisi = Date.UTC(
+    yerel.getUTCFullYear(),
+    yerel.getUTCMonth(),
+    yerel.getUTCDate()
+  );
+  // Ofseti gece yarisi ANINDA yeniden hesapla: DST gecisi olan gunlerde
+  // simdiki ofset ile gece yarisindaki ofset FARKLI olabilir.
+  let sonuc = new Date(yerelGeceYarisi - ofset);
+  const ofset2 = bolgeOfsetiMs(sonuc, timeZone);
+  if (ofset2 !== ofset) sonuc = new Date(yerelGeceYarisi - ofset2);
+  return sonuc;
+}
