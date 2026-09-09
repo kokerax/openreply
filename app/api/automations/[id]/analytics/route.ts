@@ -44,7 +44,7 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     }),
     prisma.linkClick.findMany({
       where: { workspaceId, automationId: id, createdAt },
-      select: { createdAt: true, referrer: true, userAgent: true },
+      select: { createdAt: true, referrer: true, userAgent: true, ipHash: true },
     }),
     prisma.dmLog.findMany({
       where: { ...dmScope, status: "FAILED" },

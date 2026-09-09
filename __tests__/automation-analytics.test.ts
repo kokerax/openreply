@@ -72,6 +72,66 @@ describe("topCounts", () => {
   });
 });
 
+describe("tekil tiklama ve durust CTR", () => {
+  const T = (saat: number, ip: string | null) => ({
+    createdAt: D(`2026-08-01T0${saat}:00:00Z`),
+    referrer: null,
+    userAgent: "iPhone",
+    ipHash: ip,
+  });
+  const taban = {
+    dayKeys: ["2026-08-01"],
+    comments: 5,
+    sentAt: [D("2026-08-01T01:00:00Z"), D("2026-08-01T02:00:00Z")],
+    failures: [],
+  };
+
+  it("ayni kisinin tekrar tiklamasi orani sismez", () => {
+    // Tek kisi (ayni ipHash) uc kez tikladi, iki DM gitti.
+    const out = buildCampaignAnalytics({
+      ...taban,
+      clicks: [T(3, "ayni"), T(4, "ayni"), T(5, "ayni")],
+    });
+
+    expect(out.funnel.clicks).toBe(3); // ham sayim korunuyor
+    expect(out.funnel.uniqueClicks).toBe(1);
+    expect(out.funnel.ctr).toBe(50); // 1/2, eskiden 100'e kirpilmis 150 idi
+    expect(out.funnel.clicksExceedSends).toBe(true);
+  });
+
+  it("KARSI YON: farkli kisiler ayri sayilir", () => {
+    const out = buildCampaignAnalytics({
+      ...taban,
+      clicks: [T(3, "bir"), T(4, "iki")],
+    });
+
+    expect(out.funnel.uniqueClicks).toBe(2);
+    expect(out.funnel.ctr).toBe(100);
+    expect(out.funnel.clicksExceedSends).toBe(false);
+  });
+
+  it("ipHash'i olmayan eski kayitlar birlestirilmez", () => {
+    // null'lari tek kisiye indirgemek gecmisi oldugundan kucuk gosterirdi.
+    const out = buildCampaignAnalytics({
+      ...taban,
+      clicks: [T(3, null), T(4, null)],
+    });
+
+    expect(out.funnel.uniqueClicks).toBe(2);
+  });
+
+  it("gonderim yoksa oran 0, bolme hatasi yok", () => {
+    const out = buildCampaignAnalytics({
+      ...taban,
+      sentAt: [],
+      clicks: [T(3, "bir")],
+    });
+
+    expect(out.funnel.ctr).toBe(0);
+    expect(out.funnel.clicksExceedSends).toBe(false);
+  });
+});
+
 describe("buildCampaignAnalytics", () => {
   it("computes the funnel with capped CTR and fixed device order", () => {
     const out = buildCampaignAnalytics({
@@ -79,14 +139,21 @@ describe("buildCampaignAnalytics", () => {
       comments: 10,
       sentAt: [D("2026-08-01T01:00:00Z"), D("2026-08-01T02:00:00Z"), D("2026-08-02T03:00:00Z"), D("2026-08-02T04:00:00Z")],
       clicks: [
-        { createdAt: D("2026-08-01T05:00:00Z"), referrer: "https://www.instagram.com/", userAgent: "iPhone Instagram" },
-        { createdAt: D("2026-08-02T05:00:00Z"), referrer: null, userAgent: "Windows NT 10.0 Chrome" },
-        { createdAt: D("2026-08-02T06:00:00Z"), referrer: "https://instagram.com/x", userAgent: "iPhone" },
+        { createdAt: D("2026-08-01T05:00:00Z"), referrer: "https://www.instagram.com/", userAgent: "iPhone Instagram", ipHash: "a" },
+        { createdAt: D("2026-08-02T05:00:00Z"), referrer: null, userAgent: "Windows NT 10.0 Chrome", ipHash: "b" },
+        { createdAt: D("2026-08-02T06:00:00Z"), referrer: "https://instagram.com/x", userAgent: "iPhone", ipHash: "c" },
       ],
       failures: ["(#10) blocked", "(#10) blocked", "token expired", null],
     });
 
-    expect(out.funnel).toEqual({ comments: 10, dmsSent: 4, clicks: 3, ctr: 75 });
+    expect(out.funnel).toEqual({
+      comments: 10,
+      dmsSent: 4,
+      clicks: 3,
+      uniqueClicks: 3,
+      ctr: 75,
+      clicksExceedSends: false,
+    });
     expect(out.daily).toEqual([
       { date: "2026-08-01", sent: 2, clicks: 1 },
       { date: "2026-08-02", sent: 2, clicks: 2 },
@@ -110,7 +177,14 @@ describe("buildCampaignAnalytics", () => {
 
   it("empty inputs give zeros, not NaN", () => {
     const out = buildCampaignAnalytics({ dayKeys: ["2026-08-01"], comments: 0, sentAt: [], clicks: [], failures: [] });
-    expect(out.funnel).toEqual({ comments: 0, dmsSent: 0, clicks: 0, ctr: 0 });
+    expect(out.funnel).toEqual({
+      comments: 0,
+      dmsSent: 0,
+      clicks: 0,
+      uniqueClicks: 0,
+      ctr: 0,
+      clicksExceedSends: false,
+    });
     expect(out.daily).toEqual([{ date: "2026-08-01", sent: 0, clicks: 0 }]);
     expect(out.referrers).toEqual([]);
     expect(out.devices.every((d) => d.count === 0)).toBe(true);

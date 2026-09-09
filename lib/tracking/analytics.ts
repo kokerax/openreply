@@ -21,10 +21,22 @@ function getCount(value: StatusCountRow["_count"] | KeywordCountRow["_count"]) {
   return value._all ?? 0;
 }
 
+/**
+ * Tiklama orani.
+ *
+ * `clicks` icin TEKIL tiklayan sayisi verilmeli (ayni `ipHash` bir kez).
+ * Ham tiklamayla cagirmak orani sisirir: bir kisi linke bes kez basinca
+ * "%500 tiklama orani" cikardi ve alttaki `Math.min` bunu 100'e kirpip
+ * hatayi gizlerdi.
+ *
+ * Kirpma yine duruyor cunku pay ve payda YAPISAL olarak ayni evrenden
+ * degil: `LinkClick` tablosunda alici referansi yok (yalniz trackedLinkId +
+ * ipHash), yani 40 gun once gonderilmis bir DM'e bugun gelen tiklama paya
+ * girer, o gonderim paydaya girmez. Bu bir yaklasiktir; cagiran taraf
+ * `clicksExceedSends` ile kullaniciya bunu soyler.
+ */
 export function calculateCtr(clicks: number, sent: number) {
   if (sent <= 0) return 0;
-  // Raw clicks can exceed sends (repeat clicks, link-preview bots hitting the
-  // tracked URL), which makes a "rate" over 100% — cap it so CTR stays sane.
   return Math.min(100, Number(((clicks / sent) * 100).toFixed(1)));
 }
 

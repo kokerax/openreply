@@ -15,14 +15,32 @@ export interface AnalyticsInputs {
   comments: number;
   /** createdAt of each SENT DmLog in range. */
   sentAt: Date[];
-  /** One entry per LinkClick in range. */
-  clicks: { createdAt: Date; referrer: string | null; userAgent: string | null }[];
+  /** One entry per LinkClick in range. `ipHash` tekil tiklayan icin. */
+  clicks: {
+    createdAt: Date;
+    referrer: string | null;
+    userAgent: string | null;
+    ipHash: string | null;
+  }[];
   /** errorMessage of each FAILED DmLog in range. */
   failures: (string | null)[];
 }
 
 export interface CampaignAnalytics {
-  funnel: { comments: number; dmsSent: number; clicks: number; ctr: number };
+  funnel: {
+    comments: number;
+    dmsSent: number;
+    clicks: number;
+    /** Ayni `ipHash`'i bir kez sayar; CTR bunun uzerinden hesaplanir. */
+    uniqueClicks: number;
+    ctr: number;
+    /**
+     * Ham tiklama gonderimi asiyorsa true. Eskiden `Math.min(100, ...)` bunu
+     * sessizce kirpiyordu; artik panel "bu oran yaklasik" diyebilsin diye
+     * disari veriliyor.
+     */
+    clicksExceedSends: boolean;
+  };
   daily: { date: string; sent: number; clicks: number }[];
   referrers: { referrer: string; count: number }[];
   devices: { kind: DeviceKind; count: number }[];
@@ -123,12 +141,31 @@ export function buildCampaignAnalytics(input: AnalyticsInputs): CampaignAnalytic
     count: deviceCounts.find((d) => d.key === kind)?.count ?? 0,
   }));
 
+  // Tekil tiklayan: ayni kisi linke bes kez basinca "tiklama orani" bes katina
+  // cikiyordu. `ipHash` bu satira kadar yaziliyor ama HIC okunmuyordu.
+  // `ipHash` null olan kayit (eski satirlar) tekilllestirilemez, her biri ayri
+  // sayilir — birlestirmek onlari tek kisiye indirger ve orani asagi cekerdi.
+  const gorulen = new Set<string>();
+  let uniqueClicks = 0;
+  for (const c of input.clicks) {
+    if (!c.ipHash) {
+      uniqueClicks += 1;
+      continue;
+    }
+    if (!gorulen.has(c.ipHash)) {
+      gorulen.add(c.ipHash);
+      uniqueClicks += 1;
+    }
+  }
+
   return {
     funnel: {
       comments: input.comments,
       dmsSent,
       clicks,
-      ctr: calculateCtr(clicks, dmsSent),
+      uniqueClicks,
+      ctr: calculateCtr(uniqueClicks, dmsSent),
+      clicksExceedSends: dmsSent > 0 && clicks > dmsSent,
     },
     daily: bucketDaily(
       input.dayKeys,

@@ -79,7 +79,14 @@ interface Campaign {
 
 interface CampaignAnalytics {
   range: { from: string; to: string };
-  funnel: { comments: number; dmsSent: number; clicks: number; ctr: number };
+  funnel: {
+    comments: number;
+    dmsSent: number;
+    clicks: number;
+    uniqueClicks: number;
+    ctr: number;
+    clicksExceedSends: boolean;
+  };
   daily: { date: string; sent: number; clicks: number }[];
   referrers: { referrer: string; count: number }[];
   devices: { kind: "mobile" | "desktop" | "other"; count: number }[];
@@ -685,11 +692,23 @@ function InsightsPanel({ campaignId }: { campaignId: string }) {
                   : undefined
               }
             />
-            <StatCard label="Link clicks" value={data.funnel.clicks} />
+            <StatCard
+              label="Link clicks"
+              value={data.funnel.clicks}
+              hint={`${data.funnel.uniqueClicks} unique ${
+                data.funnel.uniqueClicks === 1 ? "person" : "people"
+              }`}
+            />
             <StatCard
               label="CTR"
               value={`${data.funnel.ctr}%`}
-              hint={`${data.funnel.clicks} clicks / ${data.funnel.dmsSent} sent`}
+              // Oran TEKIL tiklayan uzerinden; ayni kisinin bes tiklamasi
+              // orani bes katina cikarmasin diye.
+              hint={
+                data.funnel.clicksExceedSends
+                  ? `${data.funnel.uniqueClicks} unique / ${data.funnel.dmsSent} sent · approximate`
+                  : `${data.funnel.uniqueClicks} unique / ${data.funnel.dmsSent} sent`
+              }
             />
           </div>
 
