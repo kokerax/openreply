@@ -27,6 +27,7 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
+import { postbackYuku, sentetikAnahtar } from "@/lib/queue/dmlog-kayit-turu";
 import { reserveDMSlot } from "@/lib/utils/pg-rate-limiter";
 import {
   releaseWorkspaceDMReservation,
@@ -683,8 +684,8 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           openingText,
           automation.openingDmButtonLabel as string,
           automation.requireFollow
-            ? `followcheck:${automation.id}`
-            : `reveal:${automation.id}`
+            ? postbackYuku("followcheck", automation.id)
+            : postbackYuku("reveal", automation.id)
         );
       } else if (sendFollowPrompt) {
         const promptText = renderMessageWithoutLink({
@@ -699,7 +700,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commentId,
           promptText,
           automation.followPromptButtonLabel || "i'm following",
-          `followcheck:${automation.id}`
+          postbackYuku("followcheck", automation.id)
         );
       } else if (automation.trackedLinks.length > 0) {
         // Try button template first; if Meta rejects it, fall back to inline links.
@@ -864,7 +865,7 @@ async function takipIstemiGonderilebilirMi(
   userId: string,
   commenterName: string | null
 ): Promise<boolean> {
-  const anahtar = `followgate:${userId}`;
+  const anahtar = sentetikAnahtar("followgate", userId);
   const kayit = await prisma.dmLog.upsert({
     where: { automationId_commentId: { automationId: automation.id, commentId: anahtar } },
     create: {
@@ -907,7 +908,7 @@ async function takipIstemiGonderilebilirMi(
 
 /** Kisi basina TEK bekleme kaydi; DmLog'un (automationId, commentId) benzersizligini kullanir. */
 function epostaKapisiAnahtari(igsid: string): string {
-  return `emailgate:${igsid}`;
+  return sentetikAnahtar("emailgate", igsid);
 }
 
 /** Bozuk adres icin kac kez tekrar sorulur (sonsuz dongu olmasin). */
@@ -955,13 +956,13 @@ async function epostaSonrasiLinkiGonder(
         igsid,
         promptText,
         automation.followPromptButtonLabel || "Following",
-        `followcheck:${automation.id}`
+        postbackYuku("followcheck", automation.id)
       );
       return;
     }
   }
 
-  const dedupeId = `reveal:${igsid}`;
+  const dedupeId = sentetikAnahtar("reveal", igsid);
   const usage = await reserveWorkspaceDMSend(automation.workspaceId);
   if (!usage.allowed) return;
   if (!(await hizSlotuAl(automation.instagramAccount.instagramId, job, "eposta"))) return;
@@ -1184,7 +1185,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
 
   // Duplicate sends are enabled: every button tap re-sends the reveal
   // instead of only firing once per person.
-  const dedupeId = `reveal:${userId}`;
+  const dedupeId = sentetikAnahtar("reveal", userId);
 
   if (fallback) {
     const existingReveal = await prisma.dmLog.findUnique({
@@ -1240,7 +1241,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
           userId,
           promptText,
           automation.followPromptButtonLabel || "i'm following",
-          `followcheck:${automation.id}`
+          postbackYuku("followcheck", automation.id)
         );
       } catch (error) {
         console.log(
@@ -1454,7 +1455,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
     orderBy: { createdAt: "asc" },
   });
 
-  const dedupeId = `dm:${messageId}`;
+  const dedupeId = sentetikAnahtar("dm", messageId);
 
   for (const automation of automations) {
     const matchResult = automation.matchAnyWord
@@ -1610,7 +1611,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
           senderId,
           promptText,
           automation.followPromptButtonLabel || "I'm following ✅",
-          `followcheck:${automation.id}`
+          postbackYuku("followcheck", automation.id)
         );
       } else {
         await sendRevealDirectMessage(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
+import { sentetikMi } from "@/lib/queue/dmlog-kayit-turu";
 import { dayKeys, resolveDateRange } from "@/lib/utils/date-range";
 import { buildCampaignAnalytics } from "./compute";
 
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
     // Sentetik defter satirlari (emailgate:/reveal:/dm:) yorum DEGIL; kaynak
     // kirilimine girerlerse "izlenmeyen" kovasini sisirirler.
     sentSources: sentRows
-      .filter((r) => !r.commentId.includes(":"))
+      .filter((r) => !sentetikMi(r.commentId))
       .map((r) => ({ mediaId: r.mediaId, originalMediaId: r.originalMediaId })),
     clicks: clickRows,
     failures: failedRows.map((r) => r.errorMessage),

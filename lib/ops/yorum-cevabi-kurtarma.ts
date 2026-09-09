@@ -13,6 +13,7 @@
  */
 import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
+import { SADECE_YORUM } from "@/lib/queue/dmlog-kayit-turu";
 
 /**
  * Cok eski bir yorumun altina birden cevap dusmesi kullaniciya tuhaf gelir ve
@@ -76,9 +77,8 @@ export async function eksikYorumCevaplariniTamamla(
       // etmiyordu. Olcum: bekleyen sanilan 205 kaydin 205'i sentetikti
       // (134 reveal, 68 emailgate, 3 dm), gercek yorum SIFIR.
       //
-      // Gercek Instagram yorum kimlikleri tamamen rakamdir; sentetik olanlarin
-      // hepsinde iki nokta var.
-      commentId: { not: { contains: ":" } },
+      // Tur ayrimi tek yerden: lib/queue/dmlog-kayit-turu.ts
+      ...SADECE_YORUM,
     },
     include: {
       automation: {

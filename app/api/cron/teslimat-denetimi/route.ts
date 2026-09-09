@@ -23,6 +23,7 @@ import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 import { tumReklamMedyalari } from "@/lib/polling/comment-reconciler";
 import { bloktanKurtar } from "@/lib/ops/kurtarma";
+import { bilinenSentetikTur } from "@/lib/queue/dmlog-kayit-turu";
 import { eksikYorumCevaplariniTamamla } from "@/lib/ops/yorum-cevabi-kurtarma";
 
 export const runtime = "nodejs";
@@ -224,6 +225,30 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // ── 4b) DmLog kayit turu degismezi ──────────────────────────────────────
+  // DmLog bes farkli kayit turu tutuyor ve tur yalnizca `commentId` onekinden
+  // anlasiliyor. Biri lib/queue/dmlog-kayit-turu.ts'ten GECMEDEN yeni bir tur
+  // eklerse, yorum sayan sorgular onu sessizce YORUM sanar — bu hata 2026-09'da
+  // uc kez yapildi. Bilinmeyen onek = mekanizmanin atlandigi an.
+  const sonSentetikler = await prisma.dmLog.findMany({
+    where: { commentId: { contains: ":" }, createdAt: { gte: new Date(esik) } },
+    select: { commentId: true },
+    take: 500,
+  });
+  const bilinmeyenOnekler = [
+    ...new Set(
+      sonSentetikler
+        .filter((d) => !bilinenSentetikTur(d.commentId))
+        .map((d) => d.commentId.slice(0, d.commentId.indexOf(":")))
+    ),
+  ];
+  if (bilinmeyenOnekler.length > 0) {
+    uyarilar.push(
+      `DmLog'da BILINMEYEN kayit turu oneki: ${bilinmeyenOnekler.join(", ")} — ` +
+        `lib/queue/dmlog-kayit-turu.ts guncellenmeli, yoksa yorum sayan sorgular bunlari yorum sanar.`
+    );
+  }
+
   // ── 5) Blok sonrasi kurtarma ────────────────────────────────────────────
   // Denetim yalnizca ALARM veriyordu; gecici Instagram blogu sirasinda dusen
   // gonderimler hicbir zaman yeniden denenmiyordu (yorum tarayicisinin
@@ -265,6 +290,7 @@ export async function GET(request: NextRequest) {
       organik: (mr.data ?? []).length,
       reklam: medyaKimlikleri.length - (mr.data ?? []).length,
       yorum: tarananYorum,
+      sentetikKayit: sonSentetikler.length,
     },
     kurtarma,
     yorumCevabi,
