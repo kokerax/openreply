@@ -22,8 +22,15 @@ function readTheme(): Theme {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
-export function applyTheme(theme: Theme) {
+type ThemeOptions = {
+  persist?: boolean;
+};
+
+export function applyTheme(theme: Theme, options: ThemeOptions = {}) {
   document.documentElement.classList.toggle("dark", theme === "dark");
+  if (options.persist === false) {
+    return;
+  }
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch {
