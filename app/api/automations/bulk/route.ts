@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   canManageWorkspace,
-  getCurrentWorkspaceContext,
+  getRequestWorkspaceContext,
 } from "@/lib/workspace-access";
 import { bulkActionSchema, runBulkAction } from "./bulk";
 
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 /** POST { ids: string[], action: "pause" | "resume" | "delete" } */
 export async function POST(request: NextRequest) {
-  const context = await getCurrentWorkspaceContext();
+  const context = await getRequestWorkspaceContext(request);
   if (!context) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },

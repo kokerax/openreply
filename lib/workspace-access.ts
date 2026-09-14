@@ -1,5 +1,6 @@
 import type { Workspace, WorkspaceRole } from "@/app/generated/prisma/client";
-import { getCurrentUserId } from "@/lib/auth";
+import { apiAnahtariGecerli, apiKullaniciEpostasi } from "@/lib/api-key-auth";
+import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { ensureWorkspaceForUser } from "@/lib/workspace";
 
@@ -121,6 +122,52 @@ export function effectiveInvitationStatus(
     return "EXPIRED";
   }
   return status;
+}
+
+/**
+ * Istek basina baglam: gecerli Bearer API anahtari varsa anahtar kullanicisi,
+ * yoksa normal panel oturumu. Oturum yolu DEGISMEZ.
+ */
+export async function getRequestWorkspaceContext(
+  request: Request
+): Promise<WorkspaceContext | null> {
+  if (apiAnahtariGecerli(request.headers.get("authorization"))) {
+    return getApiKeyWorkspaceContext();
+  }
+  return getCurrentWorkspaceContext();
+}
+
+export async function getRequestWorkspaceId(request: Request): Promise<string | null> {
+  if (apiAnahtariGecerli(request.headers.get("authorization"))) {
+    return (await getApiKeyWorkspaceContext())?.workspaceId ?? null;
+  }
+  return getCurrentWorkspaceId();
+}
+
+/**
+ * API anahtari yolu workspace OLUSTURMAZ (oturum yolunun aksine): yanlis
+ * yazilmis bir e-posta sessizce bos bir workspace uretmesin.
+ */
+async function getApiKeyWorkspaceContext(): Promise<WorkspaceContext | null> {
+  const eposta = apiKullaniciEpostasi();
+  if (!eposta) return null;
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: eposta, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (!user) return null;
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: user.id },
+    include: { workspace: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!membership) return null;
+  return {
+    userId: user.id,
+    workspaceId: membership.workspaceId,
+    workspace: membership.workspace,
+    role: membership.role,
+  };
 }
 
 export async function getCurrentWorkspaceContext(): Promise<WorkspaceContext | null> {

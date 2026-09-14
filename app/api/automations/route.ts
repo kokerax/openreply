@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
 import { buildTrackedUrl } from "@/lib/tracking/message";
@@ -9,7 +8,8 @@ import { buildReportUrl, generateReportShareSlug } from "@/lib/reports/share";
 import { SADECE_YORUM } from "@/lib/queue/dmlog-kayit-turu";
 import {
   canManageWorkspace,
-  getCurrentWorkspaceContext,
+  getRequestWorkspaceContext,
+  getRequestWorkspaceId,
 } from "@/lib/workspace-access";
 
 // This list is read-your-writes (created/imported campaigns must show up
@@ -133,7 +133,7 @@ const updateAutomationSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const workspaceId = await getCurrentWorkspaceId();
+  const workspaceId = await getRequestWorkspaceId(request);
   if (!workspaceId) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
@@ -311,7 +311,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const context = await getCurrentWorkspaceContext();
+  const context = await getRequestWorkspaceContext(request);
   if (!context) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
@@ -491,7 +491,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const context = await getCurrentWorkspaceContext();
+  const context = await getRequestWorkspaceContext(request);
   if (!context) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
@@ -669,7 +669,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const context = await getCurrentWorkspaceContext();
+  const context = await getRequestWorkspaceContext(request);
   if (!context) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },

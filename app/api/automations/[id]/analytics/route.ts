@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { getRequestWorkspaceId } from "@/lib/workspace-access";
 import { prisma } from "@/lib/db/client";
 import { SADECE_YORUM } from "@/lib/queue/dmlog-kayit-turu";
 import { dayKeys, resolveDateRange } from "@/lib/utils/date-range";
@@ -11,7 +11,7 @@ type RouteProps = { params: Promise<{ id: string }> };
 
 /** GET ?from=YYYY-MM-DD&to=YYYY-MM-DD (default: last 30 days). */
 export async function GET(request: NextRequest, { params }: RouteProps) {
-  const workspaceId = await getCurrentWorkspaceId();
+  const workspaceId = await getRequestWorkspaceId(request);
   if (!workspaceId) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },

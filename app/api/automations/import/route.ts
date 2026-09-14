@@ -6,7 +6,7 @@ import { generateReportShareSlug } from "@/lib/reports/share";
 import { generateTrackedLinkSlug } from "@/lib/tracking/server";
 import {
   canManageWorkspace,
-  getCurrentWorkspaceContext,
+  getRequestWorkspaceContext,
 } from "@/lib/workspace-access";
 
 const campaignSchema = z.object({
@@ -28,7 +28,7 @@ const importSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const context = await getCurrentWorkspaceContext();
+  const context = await getRequestWorkspaceContext(request);
   if (!context) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },

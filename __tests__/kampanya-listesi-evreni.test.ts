@@ -28,6 +28,8 @@ vi.mock("@/lib/db/client", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/auth", () => ({ getCurrentWorkspaceId: mockWorkspaceId }));
 vi.mock("@/lib/workspace-access", () => ({
   getCurrentWorkspaceContext: mockContext,
+  getRequestWorkspaceContext: mockContext,
+  getRequestWorkspaceId: () => mockWorkspaceId(),
   canManageWorkspace: () => true,
 }));
 

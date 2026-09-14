@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getRequestWorkspaceId } from "@/lib/workspace-access";
 import { prisma } from "@/lib/db/client";
 
 export const runtime = "nodejs";
@@ -10,8 +10,8 @@ export const runtime = "nodejs";
  * runs the full analytics aggregation. Pages that only need the account list
  * (e.g. the inbox) should use this so they aren't gated on heavy stats.
  */
-export async function GET() {
-  const workspaceId = await getCurrentWorkspaceId();
+export async function GET(request: NextRequest) {
+  const workspaceId = await getRequestWorkspaceId(request);
   if (!workspaceId) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
